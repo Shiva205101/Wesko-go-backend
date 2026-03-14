@@ -1,0 +1,31 @@
+package auth
+
+import "errors"
+
+var (
+	ErrInvalidCredentials        = errors.New("invalid username or password")
+	ErrInvalidUsername           = errors.New("username is required")
+	ErrInvalidPassword           = errors.New("password is required")
+	ErrInvalidEmail              = errors.New("email is required")
+	ErrInvalidMobile             = errors.New("mobile is required")
+	ErrInvalidOTPCode            = errors.New("invalid otp code")
+	ErrInvalidClientType         = errors.New("invalid client type")
+	ErrInvalidMobileFormat       = errors.New("invalid mobile number")
+	ErrUserNotFound              = errors.New("user not found")
+	ErrUserAlreadyExists         = errors.New("user already exists")
+	ErrUsernameAlreadyExists     = errors.New("username already exists")
+	ErrEmailAlreadyExists        = errors.New("email already exists")
+	ErrMobileAlreadyExists       = errors.New("mobile already exists")
+	ErrSignupVerificationPending = errors.New("signup verification pending")
+	ErrOTPResendTooSoon          = errors.New("otp resend cooldown active")
+	ErrOTPResendLimitReached     = errors.New("otp resend limit reached")
+	ErrPendingSignupExpired      = errors.New("pending signup expired")
+	ErrMobileNotVerified         = errors.New("mobile not verified")
+	ErrOTPProviderUnavailable    = errors.New("otp provider unavailable")
+	ErrCacheMiss                 = errors.New("cache miss")
+	ErrUnauthorized              = errors.New("unauthorized")
+	ErrInvalidToken              = errors.New("invalid token")
+	ErrTokenExpired              = errors.New("token expired")
+	ErrInvalidJWEKey             = errors.New("invalid jwe key length")
+	ErrInvalidRefreshToken       = errors.New("invalid refresh token")
+)
