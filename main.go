@@ -114,6 +114,7 @@ func main() {
 			MaxResends:       envConfigs.Auth.OTPMaxResends,
 		},
 	)
+	rateLimiter := rediscache.NewRateLimiter(redisClient)
 	cookieSameSite := http.SameSiteLaxMode
 	switch envConfigs.Auth.CookieSameSite {
 	case "strict":
@@ -121,16 +122,39 @@ func main() {
 	case "none":
 		cookieSameSite = http.SameSiteNoneMode
 	}
-	authHandler := authhttp.New(authService, appLogger, authhttp.CookieConfig{
-		RefreshTokenName: envConfigs.Auth.CookieName,
-		Domain:           envConfigs.Auth.CookieDomain,
-		Path:             envConfigs.Auth.CookiePath,
-		Secure:           envConfigs.Auth.CookieSecure,
-		HTTPOnly:         envConfigs.Auth.CookieHTTPOnly,
-		SameSite:         cookieSameSite,
+	authHandler := authhttp.NewWithLimiter(authService, appLogger, authhttp.CookieConfig{
+		RefreshTokenName:   envConfigs.Auth.CookieName,
+		Domain:             envConfigs.Auth.CookieDomain,
+		Path:               envConfigs.Auth.CookiePath,
+		Secure:             envConfigs.Auth.CookieSecure,
+		HTTPOnly:           envConfigs.Auth.CookieHTTPOnly,
+		SameSite:           cookieSameSite,
+		CSRFCookieName:     envConfigs.Auth.CSRFCookieName,
+		CSRFHeaderName:     envConfigs.Auth.CSRFHeaderName,
+		CSRFCookiePath:     envConfigs.Auth.CSRFCookiePath,
+		CSRFCookieSecure:   envConfigs.Auth.CSRFCookieSecure,
+		CSRFCookieSameSite: mapSameSite(envConfigs.Auth.CSRFCookieSameSite),
+	}, rateLimiter, auth.OTPRateLimitConfig{
+		RequestIP: auth.RateLimitRule{
+			Limit:  envConfigs.Auth.OTPRequestLimitIP,
+			Window: envConfigs.Auth.OTPRequestLimitWindow,
+		},
+		RequestMobile: auth.RateLimitRule{
+			Limit:  envConfigs.Auth.OTPRequestLimitMobile,
+			Window: envConfigs.Auth.OTPRequestLimitWindow,
+		},
+		VerifyIP: auth.RateLimitRule{
+			Limit:  envConfigs.Auth.OTPVerifyLimitIP,
+			Window: envConfigs.Auth.OTPVerifyLimitWindow,
+		},
+		VerifyMobile: auth.RateLimitRule{
+			Limit:  envConfigs.Auth.OTPVerifyLimitMobile,
+			Window: envConfigs.Auth.OTPVerifyLimitWindow,
+		},
 	})
 	httpServer := server.New(server.Config{
 		Addr:            ":" + envConfigs.HTTP.Port,
+		AllowedOrigins:  envConfigs.HTTP.AllowedOrigins,
 		ReadTimeout:     5 * time.Second,
 		WriteTimeout:    10 * time.Second,
 		IdleTimeout:     30 * time.Second,
@@ -161,6 +185,17 @@ func main() {
 		fatal(appLogger, "http server shutdown failed", err)
 	}
 
+}
+
+func mapSameSite(value string) http.SameSite {
+	switch value {
+	case "strict":
+		return http.SameSiteStrictMode
+	case "none":
+		return http.SameSiteNoneMode
+	default:
+		return http.SameSiteLaxMode
+	}
 }
 
 func fatal(logger *slog.Logger, message string, err error) {

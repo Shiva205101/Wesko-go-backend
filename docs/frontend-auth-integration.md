@@ -26,6 +26,25 @@ For `web` clients:
   - login verify OTP
   - refresh
   - logout
+- read the CSRF token from the `csrf_token` cookie and send it in the `X-CSRF-Token` header for:
+  - refresh
+  - logout
+
+Example browser refresh request:
+
+```ts
+const csrfToken = readCookie("csrf_token");
+
+await fetch("/auth/refresh", {
+  method: "POST",
+  credentials: "include",
+  headers: {
+    "Content-Type": "application/json",
+    "X-CSRF-Token": csrfToken
+  },
+  body: JSON.stringify({ client_type: "web" })
+});
+```
 
 ## Password Login
 
@@ -221,6 +240,8 @@ Success: always `202 Accepted`
 
 This response is intentionally generic to avoid account enumeration.
 
+Rate limiting applies to OTP request, resend, and verify endpoints. Clients should handle `429 Too Many Requests` and surface a retry-later message.
+
 ### 2. Resend login OTP
 
 `POST /auth/login/resend-otp`
@@ -268,6 +289,12 @@ Mobile request:
 }
 ```
 
+For `web`, refresh also requires:
+
+- refresh cookie
+- CSRF cookie
+- `X-CSRF-Token` header matching the CSRF cookie value
+
 ## Logout
 
 `POST /auth/logout`
@@ -288,6 +315,8 @@ Mobile request:
   "refresh_token": "<refresh-token>"
 }
 ```
+
+For `web`, logout also requires `X-CSRF-Token` with the value from the CSRF cookie.
 
 ## Current User
 
@@ -312,3 +341,17 @@ Authorization: Bearer <access-token>
 ```
 
 `details` is only present for validation errors.
+
+## Auth Hardening Notes
+
+- browser refresh and logout require `X-CSRF-Token`
+- cross-origin browser auth requires `HTTP_ALLOWED_ORIGINS` to include the frontend origin
+- OTP request, resend, and verify endpoints are rate limited and may return `429 Too Many Requests`
+
+## Cross-Origin Browser Setup
+
+If frontend and backend run on different origins:
+
+- backend must include the frontend origin in `HTTP_ALLOWED_ORIGINS`
+- frontend must send `credentials: "include"`
+- backend uses credentialed CORS and will not allow `*` for browser cookie flows

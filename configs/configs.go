@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	vredis "vesko/cache/redis"
@@ -13,41 +14,53 @@ import (
 )
 
 const (
-	DBHost                 = "DB_HOST"
-	DBPort                 = "DB_PORT"
-	DBUser                 = "DB_USER"
-	DBPass                 = "DB_PASS"
-	DBName                 = "DB_NAME"
-	DBDebug                = "DB_DEBUG"
-	DBSSLMode              = "DB_SSL_MODE"
-	RedisHost              = "REDIS_HOST"
-	RedisPort              = "REDIS_PORT"
-	RedisUser              = "REDIS_USER"
-	RedisPass              = "REDIS_PASS"
-	RedisDB                = "REDIS_DB"
-	RedisCacheTTL          = "REDIS_CACHE_TTL_SECONDS"
-	RedisDialTimeout       = "REDIS_DIAL_TIMEOUT_SECONDS"
-	RedisReadTimeout       = "REDIS_READ_TIMEOUT_SECONDS"
-	RedisWriteTimeout      = "REDIS_WRITE_TIMEOUT_SECONDS"
-	RedisPoolTimeout       = "REDIS_POOL_TIMEOUT_MILLISECONDS"
-	HTTPPort               = "HTTP_PORT"
-	AuthIssuer             = "AUTH_ISSUER"
-	AuthJWEKey             = "AUTH_JWE_KEY"
-	AccessTokenTTL         = "AUTH_ACCESS_TOKEN_TTL_SECONDS"
-	RefreshTokenTTL        = "AUTH_REFRESH_TOKEN_TTL_SECONDS"
-	AuthCookieName         = "AUTH_COOKIE_NAME"
-	AuthCookieDomain       = "AUTH_COOKIE_DOMAIN"
-	AuthCookiePath         = "AUTH_COOKIE_PATH"
-	AuthCookieSecure       = "AUTH_COOKIE_SECURE"
-	AuthCookieHTTPOnly     = "AUTH_COOKIE_HTTP_ONLY"
-	AuthCookieSameSite     = "AUTH_COOKIE_SAME_SITE"
-	TwilioAccountSID       = "TWILIO_ACCOUNT_SID"
-	TwilioAuthToken        = "TWILIO_AUTH_TOKEN"
-	TwilioVerifyServiceSID = "TWILIO_VERIFY_SERVICE_SID"
-	AuthPendingSignupTTL   = "AUTH_PENDING_SIGNUP_TTL_SECONDS"
-	AuthOTPResendCooldown  = "AUTH_OTP_RESEND_COOLDOWN_SECONDS"
-	AuthOTPMaxResends      = "AUTH_OTP_MAX_RESENDS"
-	EnvConfigFilePath      = "./configs/.env.config"
+	DBHost                           = "DB_HOST"
+	DBPort                           = "DB_PORT"
+	DBUser                           = "DB_USER"
+	DBPass                           = "DB_PASS"
+	DBName                           = "DB_NAME"
+	DBDebug                          = "DB_DEBUG"
+	DBSSLMode                        = "DB_SSL_MODE"
+	RedisHost                        = "REDIS_HOST"
+	RedisPort                        = "REDIS_PORT"
+	RedisUser                        = "REDIS_USER"
+	RedisPass                        = "REDIS_PASS"
+	RedisDB                          = "REDIS_DB"
+	RedisCacheTTL                    = "REDIS_CACHE_TTL_SECONDS"
+	RedisDialTimeout                 = "REDIS_DIAL_TIMEOUT_SECONDS"
+	RedisReadTimeout                 = "REDIS_READ_TIMEOUT_SECONDS"
+	RedisWriteTimeout                = "REDIS_WRITE_TIMEOUT_SECONDS"
+	RedisPoolTimeout                 = "REDIS_POOL_TIMEOUT_MILLISECONDS"
+	HTTPPort                         = "HTTP_PORT"
+	HTTPAllowedOrigins               = "HTTP_ALLOWED_ORIGINS"
+	AuthIssuer                       = "AUTH_ISSUER"
+	AuthJWEKey                       = "AUTH_JWE_KEY"
+	AccessTokenTTL                   = "AUTH_ACCESS_TOKEN_TTL_SECONDS"
+	RefreshTokenTTL                  = "AUTH_REFRESH_TOKEN_TTL_SECONDS"
+	AuthCookieName                   = "AUTH_COOKIE_NAME"
+	AuthCookieDomain                 = "AUTH_COOKIE_DOMAIN"
+	AuthCookiePath                   = "AUTH_COOKIE_PATH"
+	AuthCookieSecure                 = "AUTH_COOKIE_SECURE"
+	AuthCookieHTTPOnly               = "AUTH_COOKIE_HTTP_ONLY"
+	AuthCookieSameSite               = "AUTH_COOKIE_SAME_SITE"
+	TwilioAccountSID                 = "TWILIO_ACCOUNT_SID"
+	TwilioAuthToken                  = "TWILIO_AUTH_TOKEN"
+	TwilioVerifyServiceSID           = "TWILIO_VERIFY_SERVICE_SID"
+	AuthPendingSignupTTL             = "AUTH_PENDING_SIGNUP_TTL_SECONDS"
+	AuthOTPResendCooldown            = "AUTH_OTP_RESEND_COOLDOWN_SECONDS"
+	AuthOTPMaxResends                = "AUTH_OTP_MAX_RESENDS"
+	AuthOTPRequestLimitIP            = "AUTH_OTP_REQUEST_LIMIT_IP"
+	AuthOTPRequestLimitWindowSeconds = "AUTH_OTP_REQUEST_LIMIT_WINDOW_SECONDS"
+	AuthOTPRequestLimitMobile        = "AUTH_OTP_REQUEST_LIMIT_MOBILE"
+	AuthOTPVerifyLimitIP             = "AUTH_OTP_VERIFY_LIMIT_IP"
+	AuthOTPVerifyLimitWindowSeconds  = "AUTH_OTP_VERIFY_LIMIT_WINDOW_SECONDS"
+	AuthOTPVerifyLimitMobile         = "AUTH_OTP_VERIFY_LIMIT_MOBILE"
+	AuthCSRFCookieName               = "AUTH_CSRF_COOKIE_NAME"
+	AuthCSRFHeaderName               = "AUTH_CSRF_HEADER_NAME"
+	AuthCSRFCookiePath               = "AUTH_CSRF_COOKIE_PATH"
+	AuthCSRFCookieSecure             = "AUTH_CSRF_COOKIE_SECURE"
+	AuthCSRFCookieSameSite           = "AUTH_CSRF_COOKIE_SAME_SITE"
+	EnvConfigFilePath                = "./configs/.env.config"
 )
 
 type Configs struct {
@@ -58,7 +71,8 @@ type Configs struct {
 }
 
 type HTTPConfig struct {
-	Port string
+	Port           string
+	AllowedOrigins []string
 }
 
 type AuthConfig struct {
@@ -78,6 +92,17 @@ type AuthConfig struct {
 	PendingSignupTTL       time.Duration
 	OTPResendCooldown      time.Duration
 	OTPMaxResends          int
+	OTPRequestLimitIP      int
+	OTPRequestLimitWindow  time.Duration
+	OTPRequestLimitMobile  int
+	OTPVerifyLimitIP       int
+	OTPVerifyLimitWindow   time.Duration
+	OTPVerifyLimitMobile   int
+	CSRFCookieName         string
+	CSRFHeaderName         string
+	CSRFCookiePath         string
+	CSRFCookieSecure       bool
+	CSRFCookieSameSite     string
 }
 
 func getEnvString(env, fallBack string) string {
@@ -104,6 +129,24 @@ func getEnvInt(env string, fallBack int) int {
 	return i
 }
 
+func getEnvCSV(env string) []string {
+	raw := strings.TrimSpace(os.Getenv(env))
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+
+	return values
+}
+
 func Load() *Configs {
 	return &Configs{
 		DBConfig: dbase.DBConfig{
@@ -127,7 +170,8 @@ func Load() *Configs {
 			DialTimeout:  time.Duration(getEnvInt(RedisDialTimeout, 5)) * time.Second,
 		},
 		HTTP: HTTPConfig{
-			Port: getEnvString(HTTPPort, "8080"),
+			Port:           getEnvString(HTTPPort, "8080"),
+			AllowedOrigins: getEnvCSV(HTTPAllowedOrigins),
 		},
 		Auth: AuthConfig{
 			Issuer:                 getEnvString(AuthIssuer, "vesko"),
@@ -146,6 +190,17 @@ func Load() *Configs {
 			PendingSignupTTL:       time.Duration(getEnvInt(AuthPendingSignupTTL, 600)) * time.Second,
 			OTPResendCooldown:      time.Duration(getEnvInt(AuthOTPResendCooldown, 60)) * time.Second,
 			OTPMaxResends:          getEnvInt(AuthOTPMaxResends, 5),
+			OTPRequestLimitIP:      getEnvInt(AuthOTPRequestLimitIP, 10),
+			OTPRequestLimitWindow:  time.Duration(getEnvInt(AuthOTPRequestLimitWindowSeconds, 600)) * time.Second,
+			OTPRequestLimitMobile:  getEnvInt(AuthOTPRequestLimitMobile, 3),
+			OTPVerifyLimitIP:       getEnvInt(AuthOTPVerifyLimitIP, 20),
+			OTPVerifyLimitWindow:   time.Duration(getEnvInt(AuthOTPVerifyLimitWindowSeconds, 600)) * time.Second,
+			OTPVerifyLimitMobile:   getEnvInt(AuthOTPVerifyLimitMobile, 5),
+			CSRFCookieName:         getEnvString(AuthCSRFCookieName, "csrf_token"),
+			CSRFHeaderName:         getEnvString(AuthCSRFHeaderName, "X-CSRF-Token"),
+			CSRFCookiePath:         getEnvString(AuthCSRFCookiePath, "/auth"),
+			CSRFCookieSecure:       getEnvBool(AuthCSRFCookieSecure, true),
+			CSRFCookieSameSite:     getEnvString(AuthCSRFCookieSameSite, "lax"),
 		},
 	}
 }
@@ -185,6 +240,12 @@ func (c *Configs) Validate() error {
 		return fmt.Errorf("%s is required", AuthCookieName)
 	case c.Auth.CookiePath == "":
 		return fmt.Errorf("%s is required", AuthCookiePath)
+	case c.Auth.CSRFCookieName == "":
+		return fmt.Errorf("%s is required", AuthCSRFCookieName)
+	case c.Auth.CSRFHeaderName == "":
+		return fmt.Errorf("%s is required", AuthCSRFHeaderName)
+	case c.Auth.CSRFCookiePath == "":
+		return fmt.Errorf("%s is required", AuthCSRFCookiePath)
 	case c.Auth.TwilioAccountSID == "":
 		return fmt.Errorf("%s is required", TwilioAccountSID)
 	case c.Auth.TwilioAuthToken == "":
@@ -197,6 +258,18 @@ func (c *Configs) Validate() error {
 		return fmt.Errorf("%s must be 0 or greater", AuthOTPResendCooldown)
 	case c.Auth.OTPMaxResends < 0:
 		return fmt.Errorf("%s must be 0 or greater", AuthOTPMaxResends)
+	case c.Auth.OTPRequestLimitIP < 0:
+		return fmt.Errorf("%s must be 0 or greater", AuthOTPRequestLimitIP)
+	case c.Auth.OTPRequestLimitWindow < 0:
+		return fmt.Errorf("%s must be 0 or greater", AuthOTPRequestLimitWindowSeconds)
+	case c.Auth.OTPRequestLimitMobile < 0:
+		return fmt.Errorf("%s must be 0 or greater", AuthOTPRequestLimitMobile)
+	case c.Auth.OTPVerifyLimitIP < 0:
+		return fmt.Errorf("%s must be 0 or greater", AuthOTPVerifyLimitIP)
+	case c.Auth.OTPVerifyLimitWindow < 0:
+		return fmt.Errorf("%s must be 0 or greater", AuthOTPVerifyLimitWindowSeconds)
+	case c.Auth.OTPVerifyLimitMobile < 0:
+		return fmt.Errorf("%s must be 0 or greater", AuthOTPVerifyLimitMobile)
 	case c.RedisConfig.Addr == "":
 		return errors.New("redis address is required")
 	case c.RedisConfig.CacheTTL <= 0:
@@ -223,6 +296,12 @@ func (c *Configs) Validate() error {
 	case "lax", "strict", "none":
 	default:
 		return fmt.Errorf("%s must be one of lax, strict, none", AuthCookieSameSite)
+	}
+
+	switch c.Auth.CSRFCookieSameSite {
+	case "lax", "strict", "none":
+	default:
+		return fmt.Errorf("%s must be one of lax, strict, none", AuthCSRFCookieSameSite)
 	}
 
 	return nil

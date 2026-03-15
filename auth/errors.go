@@ -19,6 +19,7 @@ var (
 	ErrSignupVerificationPending = errors.New("signup verification pending")
 	ErrOTPResendTooSoon          = errors.New("otp resend cooldown active")
 	ErrOTPResendLimitReached     = errors.New("otp resend limit reached")
+	ErrOTPTooManyRequests        = errors.New("too many otp requests")
 	ErrPendingSignupExpired      = errors.New("pending signup expired")
 	ErrMobileNotVerified         = errors.New("mobile not verified")
 	ErrOTPProviderUnavailable    = errors.New("otp provider unavailable")

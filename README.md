@@ -128,6 +128,7 @@ OTP implementation decisions:
 ### HTTP
 
 - `HTTP_PORT`
+- `HTTP_ALLOWED_ORIGINS`
 
 ### Auth Tokens
 
@@ -153,6 +154,17 @@ OTP implementation decisions:
 - `AUTH_PENDING_SIGNUP_TTL_SECONDS`
 - `AUTH_OTP_RESEND_COOLDOWN_SECONDS`
 - `AUTH_OTP_MAX_RESENDS`
+- `AUTH_OTP_REQUEST_LIMIT_IP`
+- `AUTH_OTP_REQUEST_LIMIT_WINDOW_SECONDS`
+- `AUTH_OTP_REQUEST_LIMIT_MOBILE`
+- `AUTH_OTP_VERIFY_LIMIT_IP`
+- `AUTH_OTP_VERIFY_LIMIT_WINDOW_SECONDS`
+- `AUTH_OTP_VERIFY_LIMIT_MOBILE`
+- `AUTH_CSRF_COOKIE_NAME`
+- `AUTH_CSRF_HEADER_NAME`
+- `AUTH_CSRF_COOKIE_PATH`
+- `AUTH_CSRF_COOKIE_SECURE`
+- `AUTH_CSRF_COOKIE_SAME_SITE`
 
 ### Local Env File
 
@@ -193,5 +205,7 @@ go test ./...
 - mobile numbers are normalized to Indian E.164 format before storage and OTP usage
 - email and mobile are unique per account
 - `mobile_verified` is enforced for OTP login
-- browser flows still need proper CORS-with-credentials configuration if frontend and API are on different origins
-- CSRF protection is not implemented yet for cookie-based browser flows
+- browser cookie flows now require credentialed CORS using `HTTP_ALLOWED_ORIGINS`
+- browser refresh/logout require double-submit CSRF using the CSRF cookie and configured CSRF header
+- OTP request and verify endpoints now have rate-limit hooks for IP and mobile based throttling
+- auth audit logs now capture key auth events such as OTP request/verify outcomes, login results, refresh/logout outcomes, CSRF failures, and OTP rate-limit hits

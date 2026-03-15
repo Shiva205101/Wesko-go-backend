@@ -22,6 +22,7 @@ type RouteRegistrar interface {
 
 type Config struct {
 	Addr            string
+	AllowedOrigins  []string
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
@@ -47,17 +48,21 @@ func New(cfg Config, routeRegistrar RouteRegistrar) *HTTPServer {
 	}
 
 	router := gin.New()
-	router.Use(requestContextMiddleware())
-	router.Use(accessLogMiddleware(serverLogger))
-	router.Use(gin.CustomRecovery(func(c *gin.Context, recovered any) {
-		serverLogger.Error("panic recovered",
-			"request_id", requestctx.RequestID(c.Request.Context()),
-			"method", c.Request.Method,
-			"path", c.FullPath(),
-			"error", fmt.Sprint(recovered),
-		)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-	}))
+	router.Use(
+		requestContextMiddleware(),
+		corsMiddleware(cfg.AllowedOrigins),
+		accessLogMiddleware(serverLogger),
+		gin.CustomRecovery(func(c *gin.Context, recovered any) {
+			serverLogger.Error("panic recovered",
+				"request_id", requestctx.RequestID(c.Request.Context()),
+				"method", c.Request.Method,
+				"path", c.FullPath(),
+				"error", fmt.Sprint(recovered),
+			)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}),
+	)
+
 	router.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -75,6 +80,46 @@ func New(cfg Config, routeRegistrar RouteRegistrar) *HTTPServer {
 			IdleTimeout:  cfg.IdleTimeout,
 		},
 		logger: serverLogger,
+	}
+}
+
+func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			allowed[origin] = struct{}{}
+		}
+	}
+
+	return func(c *gin.Context) {
+		origin := strings.TrimSpace(c.GetHeader("Origin"))
+		if origin != "" {
+			if _, ok := allowed[origin]; ok {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+				c.Writer.Header().Set("Vary", "Origin")
+				c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+				c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID, X-CSRF-Token")
+				c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				c.Writer.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
+			}
+		}
+
+		if c.Request.Method == http.MethodOptions {
+			if origin == "" {
+				c.Status(http.StatusNoContent)
+				return
+			}
+			if _, ok := allowed[origin]; ok {
+				c.Status(http.StatusNoContent)
+				return
+			}
+
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+
+		c.Next()
 	}
 }
 
