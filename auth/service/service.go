@@ -3,12 +3,17 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"vesko/auth"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
+	googleoauth "google.golang.org/api/oauth2/v2"
+	"google.golang.org/api/option"
 )
 
 type Service struct {
@@ -19,12 +24,17 @@ type Service struct {
 	pendingSignupStore auth.PendingSignupStore
 	loginOTPStore      auth.OTPRequestStateStore
 	otpConfig          auth.OTPConfig
+	googleConfig       auth.GoogleConfig
 }
 
-func New(repo auth.UserRepository, tokenManager *auth.TokenManager, refreshStore auth.RefreshTokenStore, otpProvider auth.OTPProvider,
+func New(repo auth.UserRepository,
+	tokenManager *auth.TokenManager,
+	refreshStore auth.RefreshTokenStore,
+	otpProvider auth.OTPProvider,
 	pendingSignupStore auth.PendingSignupStore,
 	loginOTPStore auth.OTPRequestStateStore,
-	otpConfig auth.OTPConfig) *Service {
+	otpConfig auth.OTPConfig,
+	googleConfig auth.GoogleConfig) *Service {
 	return &Service{
 		repo:               repo,
 		tokenManager:       tokenManager,
@@ -33,6 +43,7 @@ func New(repo auth.UserRepository, tokenManager *auth.TokenManager, refreshStore
 		pendingSignupStore: pendingSignupStore,
 		loginOTPStore:      loginOTPStore,
 		otpConfig:          otpConfig,
+		googleConfig:       googleConfig,
 	}
 }
 
@@ -53,7 +64,12 @@ func (s *Service) ValidateLogin(ctx context.Context, username string, password s
 		return auth.User{}, err
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+	passwordHash, err := s.repo.GetPasswordHashByUserID(ctx, user.ID)
+	if err != nil {
+		return auth.User{}, auth.ErrInvalidCredentials
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
 		return auth.User{}, auth.ErrInvalidCredentials
 	}
 
@@ -136,12 +152,13 @@ func (s *Service) VerifySignupOTP(ctx context.Context, req auth.OTPVerifyRequest
 	}
 
 	user, err := s.repo.RegisterUser(ctx, auth.User{
-		Username:       pending.Username,
-		PasswordHash:   pending.PasswordHash,
-		Email:          pending.Email,
-		Mobile:         pending.Mobile,
-		MobileVerified: true,
-	})
+		Username:          pending.Username,
+		Email:             pending.Email,
+		Mobile:            pending.Mobile,
+		MobileVerified:    true,
+		Role:              auth.RoleCustomer,
+		IsProfileComplete: true,
+	}, pending.PasswordHash)
 	if err != nil {
 		return auth.User{}, auth.TokenPair{}, err
 	}
@@ -365,6 +382,147 @@ func (s *Service) AuthenticateAccessToken(token string) (auth.AccessClaims, erro
 	return s.tokenManager.ParseAccessToken(token)
 }
 
+func (s *Service) GetGoogleAuthURL() string {
+	conf := &oauth2.Config{
+		ClientID:     s.googleConfig.ClientID,
+		ClientSecret: s.googleConfig.ClientSecret,
+		RedirectURL:  s.googleConfig.RedirectURI,
+		Endpoint:     google.Endpoint,
+		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"},
+	}
+
+	return conf.AuthCodeURL("state") // In production, "state" should be a random string for CSRF protection
+}
+
+func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth.TokenPair, error) {
+	conf := &oauth2.Config{
+		ClientID:     s.googleConfig.ClientID,
+		ClientSecret: s.googleConfig.ClientSecret,
+		RedirectURL:  s.googleConfig.RedirectURI,
+		Endpoint:     google.Endpoint,
+		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"},
+	}
+
+	tok, err := conf.Exchange(ctx, code)
+	if err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	oauth2Service, err := googleoauth.NewService(ctx, option.WithTokenSource(conf.TokenSource(ctx, tok)))
+	if err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	userInfo, err := oauth2Service.Userinfo.Get().Do()
+	if err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	// 1. Check if SSO account exists
+	user, exists, err := s.repo.GetSSOAccount(ctx, "google", userInfo.Id)
+	if err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	if exists {
+		tokens, err := s.IssueTokenPair(ctx, user)
+		return user, tokens, err
+	}
+
+	// 2. Check if user with same email exists (Option A: Auto-link)
+	user, err = s.repo.GetUserByEmail(ctx, userInfo.Email)
+	if err == nil {
+		// Link existing user to this SSO account
+		err = s.repo.LinkSSOAccount(ctx, user.ID, auth.SSOAccount{
+			Provider:   "google",
+			ProviderID: userInfo.Id,
+			Email:      userInfo.Email,
+		})
+		if err != nil {
+			return auth.User{}, auth.TokenPair{}, err
+		}
+
+		tokens, err := s.IssueTokenPair(ctx, user)
+		return user, tokens, err
+	}
+
+	if !errors.Is(err, auth.ErrUserNotFound) {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	// 3. New User: Create with IsProfileComplete = false
+	// Generate a unique username from email
+	var username string
+	usernameArray := strings.Split(userInfo.Email, "@")
+	if len(usernameArray) > 1 {
+		username = usernameArray[0]
+	}
+
+	// Check if username is taken, if so, append random suffix
+	if _, err := s.repo.GetUserDetailsByUsername(ctx, username); err == nil {
+		username = fmt.Sprintf("%s_%d", username, time.Now().Unix()%1000)
+	}
+
+	user, err = s.repo.CreateSSOUser(ctx, auth.User{
+		Username:          username,
+		Email:             userInfo.Email,
+		Role:              auth.RoleCustomer,
+		IsProfileComplete: false,
+	}, auth.SSOAccount{
+		Provider:   "google",
+		ProviderID: userInfo.Id,
+		Email:      userInfo.Email,
+	})
+	if err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	tokens, err := s.IssueTokenPair(ctx, user)
+	return user, tokens, err
+}
+
+func (s *Service) CompleteProfile(ctx context.Context, userID uint, username string, mobile string) (auth.User, auth.TokenPair, error) {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	if user.IsProfileComplete {
+		return auth.User{}, auth.TokenPair{}, auth.ErrProfileAlreadyComplete
+	}
+
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return auth.User{}, auth.TokenPair{}, auth.ErrInvalidUsername
+	}
+
+	normalizedMobile, err := auth.NormalizeIndianMobile(mobile)
+	if err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	// Check if username is taken by another user
+	if existing, err := s.repo.GetUserDetailsByUsername(ctx, username); err == nil && existing.ID != userID {
+		return auth.User{}, auth.TokenPair{}, auth.ErrUsernameAlreadyExists
+	}
+
+	// Check if mobile is taken
+	if existing, err := s.repo.GetUserByMobile(ctx, normalizedMobile); err == nil && existing.ID != userID {
+		return auth.User{}, auth.TokenPair{}, auth.ErrMobileAlreadyExists
+	}
+
+	user.Username = username
+	user.Mobile = normalizedMobile
+	user.IsProfileComplete = true
+
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		return auth.User{}, auth.TokenPair{}, err
+	}
+
+	tokens, err := s.IssueTokenPair(ctx, user)
+	return user, tokens, err
+}
+
 func (s *Service) ValidateCurrentUser(ctx context.Context, username string) (auth.User, error) {
 	return s.repo.GetUserDetailsByUsername(ctx, strings.TrimSpace(username))
 }
@@ -410,21 +568,21 @@ func (s *Service) ensureSignupAvailability(ctx context.Context, req auth.Registe
 	if err == nil {
 		return s.pendingConflict(usernamePendingMobile, req.Mobile, req.Username, req.Email, ctx)
 	}
-	if err != nil && !isCacheMiss(err) {
+	if !isCacheMiss(err) {
 		return err
 	}
 	emailPendingMobile, err := s.pendingSignupStore.GetMobileByEmail(ctx, req.Email)
 	if err == nil {
 		return s.pendingConflict(emailPendingMobile, req.Mobile, req.Username, req.Email, ctx)
 	}
-	if err != nil && !isCacheMiss(err) {
+	if !isCacheMiss(err) {
 		return err
 	}
 	mobilePending, err := s.pendingSignupStore.GetMobileByMobile(ctx, req.Mobile)
 	if err == nil {
 		return s.pendingConflict(mobilePending, req.Mobile, req.Username, req.Email, ctx)
 	}
-	if err != nil && !isCacheMiss(err) {
+	if !isCacheMiss(err) {
 		return err
 	}
 
@@ -469,5 +627,5 @@ func (s *Service) loginOTPStateKey(mobile string) string {
 }
 
 func isCacheMiss(err error) bool {
-	return errors.Is(err, auth.ErrCacheMiss)
+	return err != nil && errors.Is(err, auth.ErrCacheMiss)
 }

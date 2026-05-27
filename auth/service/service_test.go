@@ -10,9 +10,12 @@ import (
 )
 
 type fakeUserRepo struct {
-	byUsername map[string]auth.User
-	byEmail    map[string]auth.User
-	byMobile   map[string]auth.User
+	byUsername  map[string]auth.User
+	byEmail     map[string]auth.User
+	byMobile    map[string]auth.User
+	byID        map[uint]auth.User
+	passwords   map[uint]string
+	ssoAccounts map[string]auth.User // key: provider:providerID
 }
 
 func (r *fakeUserRepo) GetUserDetailsByUsername(_ context.Context, username string) (auth.User, error) {
@@ -36,21 +39,77 @@ func (r *fakeUserRepo) GetUserByMobile(_ context.Context, mobile string) (auth.U
 	return auth.User{}, auth.ErrUserNotFound
 }
 
-func (r *fakeUserRepo) RegisterUser(_ context.Context, user auth.User) (auth.User, error) {
+func (r *fakeUserRepo) GetUserByID(_ context.Context, id uint) (auth.User, error) {
+	if user, ok := r.byID[id]; ok {
+		return user, nil
+	}
+	return auth.User{}, auth.ErrUserNotFound
+}
+
+func (r *fakeUserRepo) RegisterUser(_ context.Context, user auth.User, passwordHash string) (auth.User, error) {
 	if _, ok := r.byUsername[user.Username]; ok {
 		return auth.User{}, auth.ErrUsernameAlreadyExists
 	}
 	if _, ok := r.byEmail[user.Email]; ok {
 		return auth.User{}, auth.ErrEmailAlreadyExists
 	}
-	if _, ok := r.byMobile[user.Mobile]; ok {
-		return auth.User{}, auth.ErrMobileAlreadyExists
+	if user.Mobile != "" {
+		if _, ok := r.byMobile[user.Mobile]; ok {
+			return auth.User{}, auth.ErrMobileAlreadyExists
+		}
 	}
 	user.ID = uint(len(r.byUsername) + 1)
 	r.byUsername[user.Username] = user
 	r.byEmail[user.Email] = user
-	r.byMobile[user.Mobile] = user
+	if user.Mobile != "" {
+		r.byMobile[user.Mobile] = user
+	}
+	r.byID[user.ID] = user
+	if passwordHash != "" {
+		r.passwords[user.ID] = passwordHash
+	}
 	return user, nil
+}
+
+func (r *fakeUserRepo) UpdateUser(_ context.Context, user auth.User) error {
+	r.byUsername[user.Username] = user
+	r.byEmail[user.Email] = user
+	if user.Mobile != "" {
+		r.byMobile[user.Mobile] = user
+	}
+	r.byID[user.ID] = user
+	return nil
+}
+
+func (r *fakeUserRepo) GetPasswordHashByUserID(_ context.Context, userID uint) (string, error) {
+	if hash, ok := r.passwords[userID]; ok {
+		return hash, nil
+	}
+	return "", errors.New("not found")
+}
+
+func (r *fakeUserRepo) GetSSOAccount(_ context.Context, provider string, providerID string) (auth.User, bool, error) {
+	if user, ok := r.ssoAccounts[provider+":"+providerID]; ok {
+		return user, true, nil
+	}
+	return auth.User{}, false, nil
+}
+
+func (r *fakeUserRepo) CreateSSOUser(_ context.Context, user auth.User, account auth.SSOAccount) (auth.User, error) {
+	created, err := r.RegisterUser(context.Background(), user, "")
+	if err != nil {
+		return auth.User{}, err
+	}
+	r.ssoAccounts[account.Provider+":"+account.ProviderID] = created
+	return created, nil
+}
+
+func (r *fakeUserRepo) LinkSSOAccount(_ context.Context, userID uint, account auth.SSOAccount) error {
+	if user, ok := r.byID[userID]; ok {
+		r.ssoAccounts[account.Provider+":"+account.ProviderID] = user
+		return nil
+	}
+	return auth.ErrUserNotFound
 }
 
 type fakeOTPProvider struct {
@@ -195,9 +254,12 @@ func newTestService(t *testing.T) (*Service, *fakeUserRepo, *fakeOTPProvider, *f
 	}
 
 	repo := &fakeUserRepo{
-		byUsername: map[string]auth.User{},
-		byEmail:    map[string]auth.User{},
-		byMobile:   map[string]auth.User{},
+		byUsername:  map[string]auth.User{},
+		byEmail:     map[string]auth.User{},
+		byMobile:    map[string]auth.User{},
+		byID:        map[uint]auth.User{},
+		passwords:   map[uint]string{},
+		ssoAccounts: map[string]auth.User{},
 	}
 	provider := &fakeOTPProvider{checkValid: true}
 	pendingStore := newFakePendingSignupStore()
@@ -214,6 +276,11 @@ func newTestService(t *testing.T) (*Service, *fakeUserRepo, *fakeOTPProvider, *f
 			PendingSignupTTL: 10 * time.Minute,
 			ResendCooldown:   time.Minute,
 			MaxResends:       5,
+		},
+		auth.GoogleConfig{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			RedirectURI:  "redirect-uri",
 		},
 	)
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-func New(service string) *slog.Logger {
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+func New(service string, env string) *slog.Logger {
+	return slog.New(newHandler(env, &slog.HandlerOptions{
 		Level:     slog.LevelInfo,
 		AddSource: true,
 		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
@@ -26,6 +26,14 @@ func New(service string) *slog.Logger {
 			)
 		},
 	})).With("service", service)
+}
+
+func newHandler(env string, opts *slog.HandlerOptions) slog.Handler {
+	if strings.EqualFold(strings.TrimSpace(env), "prod") {
+		return slog.NewJSONHandler(os.Stdout, opts)
+	}
+
+	return slog.NewTextHandler(os.Stdout, opts)
 }
 
 func shortFunctionName(name string) string {

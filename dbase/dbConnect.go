@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type DBConfig struct {
@@ -33,13 +34,14 @@ func (cfg *DBConfig) ConnectString() string {
 }
 
 func (cfg *DBConfig) DBConn() (*gorm.DB, error) {
-	db, err := gorm.Open(postgres.Open(cfg.ConnectString()), &gorm.Config{})
-	if err != nil {
-		return nil, err
+	gormConfig := &gorm.Config{}
+	if !cfg.Debug {
+		gormConfig.Logger = logger.Default.LogMode(logger.Silent)
 	}
 
-	if cfg.Debug {
-		db = db.Debug()
+	db, err := gorm.Open(postgres.Open(cfg.ConnectString()), gormConfig)
+	if err != nil {
+		return nil, err
 	}
 	return db, nil
 }

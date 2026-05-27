@@ -29,4 +29,5 @@ var (
 	ErrTokenExpired              = errors.New("token expired")
 	ErrInvalidJWEKey             = errors.New("invalid jwe key length")
 	ErrInvalidRefreshToken       = errors.New("invalid refresh token")
+	ErrProfileAlreadyComplete    = errors.New("profile already complete")
 )

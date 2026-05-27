@@ -14,6 +14,25 @@ Every auth flow requires `client_type`.
   - access token is returned in JSON
   - refresh token is returned in JSON
 
+## User Object
+
+Most success responses return a `user` object with the following shape:
+
+```json
+{
+  "id": 1,
+  "username": "johndoe",
+  "email": "john@example.com",
+  "mobile": "+919642560235",
+  "mobile_verified": true,
+  "role": "customer",
+  "is_profile_complete": true
+}
+```
+
+- `role`: Can be `customer` or `admin`. Default is `customer`.
+- `is_profile_complete`: `true` for standard accounts. `false` for new SSO users who haven't set a username/mobile yet.
+
 ## Browser Notes
 
 For `web` clients:
@@ -24,6 +43,8 @@ For `web` clients:
   - signup verify OTP
   - login
   - login verify OTP
+  - Google callback
+  - profile completion
   - refresh
   - logout
 - read the CSRF token from the `csrf_token` cookie and send it in the `X-CSRF-Token` header for:
@@ -71,7 +92,9 @@ Web response:
     "username": "johndoe",
     "email": "john@example.com",
     "mobile": "+919642560235",
-    "mobile_verified": true
+    "mobile_verified": true,
+    "role": "customer",
+    "is_profile_complete": true
   },
   "tokens": {
     "access_token": "<access-token>",
@@ -84,13 +107,50 @@ Web response:
 
 Mobile response additionally includes `refresh_token`.
 
+## Google SSO Flow
+
+### 1. Initiate Login
+Frontend redirects the user to the backend login endpoint.
+
+`GET /auth/google/login`
+
+The backend will respond with a `302 Redirect` to Google's OAuth2 consent screen.
+
+### 2. Handle Callback
+After Google login, the user is redirected back to the authorized Redirect URI with a `code` parameter.
+
+`GET /auth/google/callback?code=<code>&client_type=web`
+
+Success: `200 OK`
+
+Response shape matches Password Login.
+
+**Note:** If `is_profile_complete` is `false`, the issued `access_token` is a **partial token**. It only allows access to the Profile Completion endpoint. The frontend must redirect the user to a profile completion form.
+
+### 3. Complete Profile (Mandatory for new SSO users)
+Used to set a `username` and `mobile` number after the first Google login.
+
+`POST /auth/profile/complete`
+
+Header: `Authorization: Bearer <partial-access-token>`
+
+Request:
+```json
+{
+  "username": "chosen_username",
+  "mobile": "9642560235",
+  "client_type": "web"
+}
+```
+
+Success: `200 OK`
+Returns a new `user` object with `is_profile_complete: true` and a fresh full `access_token`.
+
 ## OTP Signup Flow
 
 ### 1. Request signup OTP
 
 `POST /auth/signup/request-otp`
-
-`POST /auth/register` is also supported as an alias and now starts OTP signup instead of creating a user immediately.
 
 Request:
 
@@ -104,34 +164,11 @@ Request:
 }
 ```
 
-Notes:
-
-- local Indian mobile input is accepted
-- backend normalizes and stores mobile as E.164, for example `+919642560235`
-- user is not created yet
-- signup data is stored temporarily until OTP verification succeeds
-
 Success: `202 Accepted`
 
 ```json
 {
   "message": "otp sent to mobile number",
-  "request_id": "<request-id>"
-}
-```
-
-Conflict examples: `409 Conflict`
-
-```json
-{
-  "error": "username already exists",
-  "request_id": "<request-id>"
-}
-```
-
-```json
-{
-  "error": "signup verification pending",
   "request_id": "<request-id>"
 }
 ```
@@ -151,70 +188,9 @@ Request:
 ```
 
 Success: `201 Created`
-
-- user is created
-- `mobile_verified` becomes `true`
-- tokens are issued immediately
-
-For `web`, the refresh token is written to the cookie and omitted from JSON.
-
-### 3. Resend signup OTP
-
-`POST /auth/signup/resend-otp`
-
-Request:
-
-```json
-{
-  "mobile": "9642560235",
-  "client_type": "web"
-}
-```
-
-Success: `202 Accepted`
-
-```json
-{
-  "message": "otp resent to mobile number",
-  "request_id": "<request-id>"
-}
-```
-
-Errors:
-
-- `410 Gone` when pending signup expired
-- `429 Too Many Requests` when resend cooldown or resend limit is hit
-
-### 4. Signup status
-
-`POST /auth/signup/status`
-
-Request:
-
-```json
-{
-  "mobile": "9642560235"
-}
-```
-
-Response:
-
-```json
-{
-  "status": "pending",
-  "request_id": "<request-id>"
-}
-```
-
-Possible status values:
-
-- `pending`
-- `expired`
-- `completed`
+Response shape matches Password Login.
 
 ## OTP Login Flow
-
-OTP login is allowed only for users whose mobile number is already verified.
 
 ### 1. Request login OTP
 
@@ -229,104 +205,29 @@ Request:
 }
 ```
 
-Success: always `202 Accepted`
+Success: `202 Accepted` (Generic response)
 
-```json
-{
-  "message": "if the account is eligible, an otp has been sent",
-  "request_id": "<request-id>"
-}
-```
-
-This response is intentionally generic to avoid account enumeration.
-
-Rate limiting applies to OTP request, resend, and verify endpoints. Clients should handle `429 Too Many Requests` and surface a retry-later message.
-
-### 2. Resend login OTP
-
-`POST /auth/login/resend-otp`
-
-Request body is the same as `login/request-otp`.
-
-Response is the same generic `202 Accepted` message.
-
-### 3. Verify login OTP
+### 2. Verify login OTP
 
 `POST /auth/login/verify-otp`
 
-Request:
-
-```json
-{
-  "mobile": "9642560235",
-  "code": "123456",
-  "client_type": "web"
-}
-```
-
 Success: `200 OK`
+Response shape matches Password Login.
 
-Response shape matches password login.
+## Session Management
 
-## Refresh
-
+### Refresh
 `POST /auth/refresh`
 
-Web request:
-
-```json
-{
-  "client_type": "web"
-}
-```
-
-Mobile request:
-
-```json
-{
-  "client_type": "android",
-  "refresh_token": "<refresh-token>"
-}
-```
-
-For `web`, refresh also requires:
-
-- refresh cookie
-- CSRF cookie
-- `X-CSRF-Token` header matching the CSRF cookie value
-
-## Logout
-
+### Logout
 `POST /auth/logout`
 
-Web request:
-
-```json
-{
-  "client_type": "web"
-}
-```
-
-Mobile request:
-
-```json
-{
-  "client_type": "ios",
-  "refresh_token": "<refresh-token>"
-}
-```
-
-For `web`, logout also requires `X-CSRF-Token` with the value from the CSRF cookie.
-
-## Current User
-
+### Current User
 `GET /auth/me`
 
-Header:
+Header: `Authorization: Bearer <access-token>`
 
-```http
-Authorization: Bearer <access-token>
-```
+Returns the [User Object](#user-object).
 
 ## Standard Error Shape
 
@@ -341,17 +242,3 @@ Authorization: Bearer <access-token>
 ```
 
 `details` is only present for validation errors.
-
-## Auth Hardening Notes
-
-- browser refresh and logout require `X-CSRF-Token`
-- cross-origin browser auth requires `HTTP_ALLOWED_ORIGINS` to include the frontend origin
-- OTP request, resend, and verify endpoints are rate limited and may return `429 Too Many Requests`
-
-## Cross-Origin Browser Setup
-
-If frontend and backend run on different origins:
-
-- backend must include the frontend origin in `HTTP_ALLOWED_ORIGINS`
-- frontend must send `credentials: "include"`
-- backend uses credentialed CORS and will not allow `*` for browser cookie flows

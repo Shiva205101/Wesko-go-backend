@@ -34,10 +34,12 @@ func NewTokenManager(issuer string, jweKey string, accessTokenTTL time.Duration,
 func (m *TokenManager) GenerateTokenPair(user User) (TokenPair, RefreshSession, error) {
 	now := time.Now().UTC()
 	claims := AccessClaims{
-		Subject:   user.Username,
-		TokenType: "access",
-		IssuedAt:  now,
-		ExpiresAt: now.Add(m.accessTokenTTL),
+		Subject:           user.Username,
+		TokenType:         "access",
+		Role:              string(user.Role),
+		IsProfileComplete: user.IsProfileComplete,
+		IssuedAt:          now,
+		ExpiresAt:         now.Add(m.accessTokenTTL),
 	}
 
 	accessToken, err := m.encrypt(claims)

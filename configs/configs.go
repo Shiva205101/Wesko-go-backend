@@ -60,6 +60,9 @@ const (
 	AuthCSRFCookiePath               = "AUTH_CSRF_COOKIE_PATH"
 	AuthCSRFCookieSecure             = "AUTH_CSRF_COOKIE_SECURE"
 	AuthCSRFCookieSameSite           = "AUTH_CSRF_COOKIE_SAME_SITE"
+	GoogleClientID                   = "GOOGLE_CLIENT_ID"
+	GoogleClientSecret               = "GOOGLE_CLIENT_SECRET"
+	GoogleRedirectURI                = "GOOGLE_REDIRECT_URI"
 	EnvConfigFilePath                = "./configs/.env.config"
 )
 
@@ -103,6 +106,9 @@ type AuthConfig struct {
 	CSRFCookiePath         string
 	CSRFCookieSecure       bool
 	CSRFCookieSameSite     string
+	GoogleClientID         string
+	GoogleClientSecret     string
+	GoogleRedirectURI      string
 }
 
 func getEnvString(env, fallBack string) string {
@@ -201,6 +207,9 @@ func Load() *Configs {
 			CSRFCookiePath:         getEnvString(AuthCSRFCookiePath, "/auth"),
 			CSRFCookieSecure:       getEnvBool(AuthCSRFCookieSecure, true),
 			CSRFCookieSameSite:     getEnvString(AuthCSRFCookieSameSite, "lax"),
+			GoogleClientID:         getEnvString(GoogleClientID, ""),
+			GoogleClientSecret:     getEnvString(GoogleClientSecret, ""),
+			GoogleRedirectURI:      getEnvString(GoogleRedirectURI, ""),
 		},
 	}
 }
@@ -246,6 +255,12 @@ func (c *Configs) Validate() error {
 		return fmt.Errorf("%s is required", AuthCSRFHeaderName)
 	case c.Auth.CSRFCookiePath == "":
 		return fmt.Errorf("%s is required", AuthCSRFCookiePath)
+	case c.Auth.GoogleClientID == "":
+		return fmt.Errorf("%s is required", GoogleClientID)
+	case c.Auth.GoogleClientSecret == "":
+		return fmt.Errorf("%s is required", GoogleClientSecret)
+	case c.Auth.GoogleRedirectURI == "":
+		return fmt.Errorf("%s is required", GoogleRedirectURI)
 	case c.Auth.TwilioAccountSID == "":
 		return fmt.Errorf("%s is required", TwilioAccountSID)
 	case c.Auth.TwilioAuthToken == "":

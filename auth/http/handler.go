@@ -143,6 +143,12 @@ func NewWithLimiter(service *authservice.Service, logger *slog.Logger, cookies C
 	}
 }
 
+type completeProfileRequestBody struct {
+	Username   string `json:"username" validate:"required,min=3,max=50"`
+	Mobile     string `json:"mobile" validate:"required"`
+	ClientType string `json:"client_type" validate:"required,oneof=web android ios"`
+}
+
 func (h *Handler) RegisterRoutes(router gin.IRouter) {
 	router.POST("/auth/register", h.handleRequestSignupOTP)
 	router.POST("/auth/signup/request-otp", h.handleRequestSignupOTP)
@@ -156,6 +162,96 @@ func (h *Handler) RegisterRoutes(router gin.IRouter) {
 	router.POST("/auth/refresh", h.handleRefresh)
 	router.POST("/auth/logout", h.handleLogout)
 	router.GET("/auth/me", h.requireAccessToken(), h.handleMe)
+
+	// Google SSO
+	router.GET("/auth/google/login", h.handleGoogleLoginRedirect)
+	router.GET("/auth/google/callback", h.handleGoogleCallback)
+	router.POST("/auth/profile/complete", h.requirePartialAccessToken(), h.handleCompleteProfile)
+}
+
+func (h *Handler) handleGoogleLoginRedirect(c *gin.Context) {
+	// For web, this can be a simple redirect
+	// For mobile, they might handle the OAuth flow themselves and just call the callback/login endpoint with the code
+	// But let's implement the redirect for web
+	googleAuthURL := h.service.GetGoogleAuthURL()
+	c.Redirect(stdhttp.StatusTemporaryRedirect, googleAuthURL)
+}
+
+func (h *Handler) handleGoogleCallback(c *gin.Context) {
+	code := c.Query("code")
+	clientType := c.DefaultQuery("client_type", "web")
+
+	if code == "" {
+		h.writeServiceError(c, errors.New("missing code"))
+		return
+	}
+
+	user, tokens, err := h.service.GoogleLogin(c.Request.Context(), code)
+	if err != nil {
+		h.auditEvent(c, slog.LevelWarn, "google_login", "rejected",
+			"reason", err.Error(),
+		)
+		h.writeServiceError(c, err)
+		return
+	}
+
+	h.applyRefreshTokenTransport(c, clientType, &tokens)
+	h.auditEvent(c, slog.LevelInfo, "google_login", "succeeded",
+		"username", user.Username,
+		"is_complete", user.IsProfileComplete,
+	)
+
+	c.JSON(stdhttp.StatusOK, authResponse{User: toUserResponse(user), Tokens: tokens})
+}
+
+func (h *Handler) handleCompleteProfile(c *gin.Context) {
+	var req completeProfileRequestBody
+	if err := h.decodeAndValidateJSON(c, &req); err != nil {
+		return
+	}
+
+	userID := c.GetUint("auth.user_id")
+
+	user, tokens, err := h.service.CompleteProfile(c.Request.Context(), userID, req.Username, req.Mobile)
+	if err != nil {
+		h.auditEvent(c, slog.LevelWarn, "profile_complete", "rejected",
+			"user_id", userID,
+			"reason", err.Error(),
+		)
+		h.writeServiceError(c, err)
+		return
+	}
+
+	h.applyRefreshTokenTransport(c, req.ClientType, &tokens)
+	h.auditEvent(c, slog.LevelInfo, "profile_complete", "succeeded",
+		"username", user.Username,
+	)
+
+	c.JSON(stdhttp.StatusOK, authResponse{User: toUserResponse(user), Tokens: tokens})
+}
+
+func (h *Handler) requirePartialAccessToken() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, err := h.service.AuthenticateAccessToken(bearerToken(c.GetHeader("Authorization")))
+		if err != nil {
+			h.writeServiceError(c, err)
+			c.Abort()
+			return
+		}
+
+		// We need to pass UserID if we can, but AccessClaims only has Subject (username)
+		// We should probably add UserID to AccessClaims or use Subject to fetch user
+		user, err := h.service.ValidateCurrentUser(c.Request.Context(), claims.Subject)
+		if err != nil {
+			h.writeServiceError(c, err)
+			c.Abort()
+			return
+		}
+
+		c.Set("auth.username", claims.Subject)
+		c.Set("auth.user_id", user.ID)
+		c.Next()
+	}
 }
 
 func (h *Handler) handleRequestSignupOTP(c *gin.Context) {
@@ -479,6 +575,13 @@ func (h *Handler) requireAccessToken() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		if !claims.IsProfileComplete {
+			h.writeServiceError(c, auth.ErrUnauthorized)
+			c.Abort()
+			return
+		}
+
 		c.Set("auth.username", claims.Subject)
 		c.Next()
 	}
@@ -487,7 +590,7 @@ func (h *Handler) requireAccessToken() gin.HandlerFunc {
 func (h *Handler) writeServiceError(c *gin.Context, err error) {
 	status := stdhttp.StatusInternalServerError
 	switch {
-	case errors.Is(err, auth.ErrInvalidUsername), errors.Is(err, auth.ErrInvalidPassword), errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrInvalidMobile), errors.Is(err, auth.ErrInvalidOTPCode), errors.Is(err, auth.ErrInvalidMobileFormat):
+	case errors.Is(err, auth.ErrInvalidUsername), errors.Is(err, auth.ErrInvalidPassword), errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrInvalidMobile), errors.Is(err, auth.ErrInvalidOTPCode), errors.Is(err, auth.ErrInvalidMobileFormat), errors.Is(err, auth.ErrUserNotFound), errors.Is(err, auth.ErrProfileAlreadyComplete):
 		status = stdhttp.StatusBadRequest
 	case errors.Is(err, auth.ErrInvalidRefreshToken), errors.Is(err, auth.ErrInvalidToken), errors.Is(err, auth.ErrUnauthorized), errors.Is(err, auth.ErrTokenExpired), errors.Is(err, auth.ErrInvalidCredentials), errors.Is(err, auth.ErrMobileNotVerified):
 		status = stdhttp.StatusUnauthorized

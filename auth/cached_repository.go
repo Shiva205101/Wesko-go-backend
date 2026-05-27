@@ -66,8 +66,13 @@ func (r *CachedUserRepository) GetUserByMobile(ctx context.Context, mobile strin
 	return user, nil
 }
 
-func (r *CachedUserRepository) RegisterUser(ctx context.Context, user User) (User, error) {
-	createdUser, err := r.store.RegisterUser(ctx, user)
+func (r *CachedUserRepository) GetUserByID(ctx context.Context, id uint) (User, error) {
+	// Not caching by ID for now to keep it simple, or we could add another cache
+	return r.store.GetUserByID(ctx, id)
+}
+
+func (r *CachedUserRepository) RegisterUser(ctx context.Context, user User, passwordHash string) (User, error) {
+	createdUser, err := r.store.RegisterUser(ctx, user, passwordHash)
 	if err != nil {
 		return User{}, err
 	}
@@ -77,4 +82,42 @@ func (r *CachedUserRepository) RegisterUser(ctx context.Context, user User) (Use
 	}
 
 	return createdUser, nil
+}
+
+func (r *CachedUserRepository) UpdateUser(ctx context.Context, user User) error {
+	err := r.store.UpdateUser(ctx, user)
+	if err != nil {
+		return err
+	}
+
+	if r.cache != nil {
+		_ = r.cache.DeleteUser(ctx, user.Username)
+	}
+
+	return nil
+}
+
+func (r *CachedUserRepository) GetPasswordHashByUserID(ctx context.Context, userID uint) (string, error) {
+	return r.store.GetPasswordHashByUserID(ctx, userID)
+}
+
+func (r *CachedUserRepository) GetSSOAccount(ctx context.Context, provider string, providerID string) (User, bool, error) {
+	return r.store.GetSSOAccount(ctx, provider, providerID)
+}
+
+func (r *CachedUserRepository) CreateSSOUser(ctx context.Context, user User, account SSOAccount) (User, error) {
+	createdUser, err := r.store.CreateSSOUser(ctx, user, account)
+	if err != nil {
+		return User{}, err
+	}
+
+	if r.cache != nil {
+		_ = r.cache.SetUser(ctx, createdUser)
+	}
+
+	return createdUser, nil
+}
+
+func (r *CachedUserRepository) LinkSSOAccount(ctx context.Context, userID uint, account SSOAccount) error {
+	return r.store.LinkSSOAccount(ctx, userID, account)
 }

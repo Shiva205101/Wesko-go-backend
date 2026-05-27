@@ -24,12 +24,12 @@ import (
 )
 
 func main() {
-	appLogger := logger.New("vesko-auth")
-
 	env, exists := os.LookupEnv("ENV")
 	if !exists {
 		env = "dev"
 	}
+
+	appLogger := logger.New("vesko-auth", env)
 
 	if env == "dev" {
 		err := godotenv.Load(configs.EnvConfigFilePath)
@@ -112,6 +112,11 @@ func main() {
 			PendingSignupTTL: envConfigs.Auth.PendingSignupTTL,
 			ResendCooldown:   envConfigs.Auth.OTPResendCooldown,
 			MaxResends:       envConfigs.Auth.OTPMaxResends,
+		},
+		auth.GoogleConfig{
+			ClientID:     envConfigs.Auth.GoogleClientID,
+			ClientSecret: envConfigs.Auth.GoogleClientSecret,
+			RedirectURI:  envConfigs.Auth.GoogleRedirectURI,
 		},
 	)
 	rateLimiter := rediscache.NewRateLimiter(redisClient)

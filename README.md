@@ -1,42 +1,47 @@
 # Vesko Go Backend
 
-Go backend for Vesko authentication and supporting infrastructure.
+Go backend for Vesko auth and session management.
 
 ## Current Scope
 
-This repo currently focuses on:
+The server currently exposes auth-focused APIs with:
 
-- HTTP API server using Gin
+- Gin HTTP server with request ID propagation, access logs, and panic recovery
 - PostgreSQL-backed user persistence via GORM
-- Redis-backed caching and auth state
-- access/refresh token authentication
-- browser and mobile client support
-- mobile OTP-based signup verification and OTP login using Twilio Verify
+- Redis-backed caching, refresh sessions, pending signup state, login OTP state, and OTP rate limiting
+- password login
+- OTP-based signup and OTP login using Twilio Verify
+- Google SSO login with first-time profile completion
+- web and mobile client token flows
+
+The repository also contains a `catalog/` scaffold and broader architecture notes, but those routes are not wired into `main.go` yet.
 
 ## Tech Stack
 
-- Go
+- Go 1.25
 - Gin
 - GORM
 - PostgreSQL
 - Redis
 - Twilio Verify
+- Google OAuth2 / Google UserInfo API
 
 ## Project Layout
 
 ```text
-auth/                  core auth domain types, interfaces, errors, token logic
-auth/http/             auth HTTP transport layer
-auth/service/          auth orchestration and business flow logic
+auth/                  auth domain types, interfaces, errors, token logic
+auth/http/             auth HTTP handlers and middleware helpers
+auth/service/          auth orchestration and business flows
 auth/provider/twilio/  Twilio Verify OTP provider
-cache/redis/           Redis-backed stores and caches
+cache/redis/           Redis-backed stores, caches, and rate limiter
+catalog/               catalog scaffold (not registered in the live HTTP server yet)
 configs/               environment loading and validation
-dbase/                 database connection and repositories
-docs/                  auth docs and design decisions
-logger/                app logger setup
+dbase/                 database connection and Postgres repositories
+docs/                  frontend contract, architecture notes, Postman collection
+logger/                structured logger setup
 requestctx/            request metadata helpers
 server/                HTTP server bootstrap and middleware
-validation/            shared go-playground/validator wrapper
+validation/            shared request validation wrapper
 ```
 
 ## Authentication Model
@@ -44,22 +49,32 @@ validation/            shared go-playground/validator wrapper
 ### Password Login
 
 - login with `username + password`
-- returns access token for all clients
-- returns refresh token in JSON for mobile clients
-- writes refresh token to `HttpOnly` cookie for browser clients
+- returns an access token for all clients
+- returns refresh token in JSON for `android` and `ios`
+- stores refresh token in an `HttpOnly` cookie for `web`
 
 ### OTP Signup
 
 - signup starts with OTP request
-- user is not inserted into the database immediately
-- pending signup data is stored temporarily in Redis
-- user is created only after OTP verification succeeds
+- pending signup data is stored in Redis until verification succeeds
+- user record is created only after OTP verification
+- duplicate username/email/mobile checks include pending signups
 
 ### OTP Login
 
 - OTP login uses mobile number
 - only allowed for users with `mobile_verified=true`
-- login OTP request uses a generic response to avoid account enumeration
+- OTP request endpoints return generic responses for ineligible accounts
+
+### Google SSO
+
+- `GET /auth/google/login` redirects the client to Google OAuth
+- `GET /auth/google/callback` exchanges the code, fetches Google user info, and either:
+  - signs in an already linked Google account
+  - links to an existing Vesko account with the same email
+  - creates a new SSO account with `is_profile_complete=false`
+- first-time SSO users must call `POST /auth/profile/complete` with their access token to set `username` and `mobile`
+- partial SSO access tokens are not accepted by `GET /auth/me`
 
 ## Client Types
 
@@ -68,7 +83,8 @@ Every auth flow requires `client_type`.
 - `web`
   - access token in JSON
   - refresh token in `HttpOnly` cookie
-  - frontend must use `credentials: "include"` where cookies are required
+  - CSRF cookie is also issued on successful web auth flows that mint refresh tokens
+  - frontend must use `credentials: "include"` for cookie-based requests
 - `android`
   - access token in JSON
   - refresh token in JSON
@@ -76,7 +92,7 @@ Every auth flow requires `client_type`.
   - access token in JSON
   - refresh token in JSON
 
-## Main Auth Endpoints
+## Main Endpoints
 
 - `POST /auth/register`
 - `POST /auth/signup/request-otp`
@@ -87,18 +103,13 @@ Every auth flow requires `client_type`.
 - `POST /auth/login/request-otp`
 - `POST /auth/login/verify-otp`
 - `POST /auth/login/resend-otp`
+- `GET /auth/google/login`
+- `GET /auth/google/callback`
+- `POST /auth/profile/complete`
 - `POST /auth/refresh`
 - `POST /auth/logout`
 - `GET /auth/me`
 - `GET /healthz`
-
-Detailed frontend contract:
-
-- [docs/frontend-auth-integration.md](/home/shivateja-bodige/projects/vesko-go-backend/docs/frontend-auth-integration.md)
-
-OTP implementation decisions:
-
-- [docs/otp-auth-decisions.md](/home/shivateja-bodige/projects/vesko-go-backend/docs/otp-auth-decisions.md)
 
 ## Environment Variables
 
@@ -130,12 +141,16 @@ OTP implementation decisions:
 - `HTTP_PORT`
 - `HTTP_ALLOWED_ORIGINS`
 
+`HTTP_ALLOWED_ORIGINS` is a comma-separated list of allowed browser origins.
+
 ### Auth Tokens
 
 - `AUTH_ISSUER`
 - `AUTH_JWE_KEY`
 - `AUTH_ACCESS_TOKEN_TTL_SECONDS`
 - `AUTH_REFRESH_TOKEN_TTL_SECONDS`
+
+`AUTH_JWE_KEY` must be exactly 32 bytes.
 
 ### Auth Cookies
 
@@ -145,6 +160,18 @@ OTP implementation decisions:
 - `AUTH_COOKIE_SECURE`
 - `AUTH_COOKIE_HTTP_ONLY`
 - `AUTH_COOKIE_SAME_SITE`
+
+`AUTH_COOKIE_SAME_SITE` must be one of `lax`, `strict`, or `none`.
+
+### CSRF
+
+- `AUTH_CSRF_COOKIE_NAME`
+- `AUTH_CSRF_HEADER_NAME`
+- `AUTH_CSRF_COOKIE_PATH`
+- `AUTH_CSRF_COOKIE_SECURE`
+- `AUTH_CSRF_COOKIE_SAME_SITE`
+
+`AUTH_CSRF_COOKIE_SAME_SITE` must be one of `lax`, `strict`, or `none`.
 
 ### OTP / Twilio
 
@@ -160,13 +187,14 @@ OTP implementation decisions:
 - `AUTH_OTP_VERIFY_LIMIT_IP`
 - `AUTH_OTP_VERIFY_LIMIT_WINDOW_SECONDS`
 - `AUTH_OTP_VERIFY_LIMIT_MOBILE`
-- `AUTH_CSRF_COOKIE_NAME`
-- `AUTH_CSRF_HEADER_NAME`
-- `AUTH_CSRF_COOKIE_PATH`
-- `AUTH_CSRF_COOKIE_SECURE`
-- `AUTH_CSRF_COOKIE_SAME_SITE`
 
-### Local Env File
+### Google OAuth
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+
+## Local Development
 
 In `dev`, the app loads:
 
@@ -174,38 +202,39 @@ In `dev`, the app loads:
 ./configs/.env.config
 ```
 
-## Running Locally
+To run locally:
 
 1. Start PostgreSQL and Redis.
-2. Configure the required environment variables.
-3. Run the app:
+2. Set the required env vars for auth, Twilio, and Google OAuth.
+3. Run:
 
 ```bash
 go run .
 ```
 
-If `ENV=dev`, the app loads values from `configs/.env.config`.
+On startup, the app auto-migrates the user, password, and SSO account tables.
 
-## Validation
+## Validation And Testing
 
-Shared request validation is implemented through the repo-level `validation` package using `go-playground/validator`.
+Request validation is handled through the repo-level `validation` package using `go-playground/validator`.
 
-Validation is applied at the HTTP boundary before service execution.
-
-## Testing
-
-Run:
+Run tests with:
 
 ```bash
 go test ./...
 ```
 
+## Docs
+
+- Frontend contract: [docs/frontend-auth-integration.md](/home/shivateja-bodige/projects/vesko-go-backend/docs/frontend-auth-integration.md)
+- Postman collection: [docs/auth_postman_collection.json](/home/shivateja-bodige/projects/vesko-go-backend/docs/auth_postman_collection.json)
+- Architecture direction: [docs/architecture.md](/home/shivateja-bodige/projects/vesko-go-backend/docs/architecture.md)
+- OTP design notes: [docs/otp-auth-decisions.md](/home/shivateja-bodige/projects/vesko-go-backend/docs/otp-auth-decisions.md)
+
 ## Notes
 
 - mobile numbers are normalized to Indian E.164 format before storage and OTP usage
-- email and mobile are unique per account
-- `mobile_verified` is enforced for OTP login
-- browser cookie flows now require credentialed CORS using `HTTP_ALLOWED_ORIGINS`
-- browser refresh/logout require double-submit CSRF using the CSRF cookie and configured CSRF header
-- OTP request and verify endpoints now have rate-limit hooks for IP and mobile based throttling
-- auth audit logs now capture key auth events such as OTP request/verify outcomes, login results, refresh/logout outcomes, CSRF failures, and OTP rate-limit hits
+- browser refresh and logout require the configured CSRF cookie/header pair
+- OTP request and verify endpoints are rate-limited by IP and normalized mobile number
+- auth audit logs capture signup, login, refresh, logout, CSRF failures, Google SSO, and OTP rate-limit events
+- the HTTP server generates or forwards `X-Request-ID` for every request

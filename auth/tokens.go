@@ -3,10 +3,12 @@ package auth
 import "time"
 
 type AccessClaims struct {
-	Subject   string    `json:"sub"`
-	TokenType string    `json:"typ"`
-	IssuedAt  time.Time `json:"iat"`
-	ExpiresAt time.Time `json:"exp"`
+	Subject           string    `json:"sub"`
+	TokenType         string    `json:"typ"`
+	Role              string    `json:"role"`
+	IsProfileComplete bool      `json:"is_profile_complete"`
+	IssuedAt          time.Time `json:"iat"`
+	ExpiresAt         time.Time `json:"exp"`
 }
 
 type RefreshSession struct {

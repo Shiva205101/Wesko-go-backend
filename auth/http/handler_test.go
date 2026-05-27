@@ -17,9 +17,12 @@ import (
 )
 
 type fakeUserRepo struct {
-	byUsername map[string]auth.User
-	byEmail    map[string]auth.User
-	byMobile   map[string]auth.User
+	byUsername  map[string]auth.User
+	byEmail     map[string]auth.User
+	byMobile    map[string]auth.User
+	byID        map[uint]auth.User
+	passwords   map[uint]string
+	ssoAccounts map[string]auth.User
 }
 
 func (r *fakeUserRepo) GetUserDetailsByUsername(_ context.Context, username string) (auth.User, error) {
@@ -43,12 +46,68 @@ func (r *fakeUserRepo) GetUserByMobile(_ context.Context, mobile string) (auth.U
 	return auth.User{}, auth.ErrUserNotFound
 }
 
-func (r *fakeUserRepo) RegisterUser(_ context.Context, user auth.User) (auth.User, error) {
+func (r *fakeUserRepo) GetUserByID(_ context.Context, id uint) (auth.User, error) {
+	if user, ok := r.byID[id]; ok {
+		return user, nil
+	}
+	return auth.User{}, auth.ErrUserNotFound
+}
+
+func (r *fakeUserRepo) RegisterUser(_ context.Context, user auth.User, passwordHash string) (auth.User, error) {
 	user.ID = uint(len(r.byUsername) + 1)
 	r.byUsername[user.Username] = user
 	r.byEmail[user.Email] = user
-	r.byMobile[user.Mobile] = user
+	if user.Mobile != "" {
+		r.byMobile[user.Mobile] = user
+	}
+	r.byID[user.ID] = user
+	if passwordHash != "" {
+		r.passwords[user.ID] = passwordHash
+	}
 	return user, nil
+}
+
+func (r *fakeUserRepo) UpdateUser(_ context.Context, user auth.User) error {
+	r.byUsername[user.Username] = user
+	r.byEmail[user.Email] = user
+	if user.Mobile != "" {
+		r.byMobile[user.Mobile] = user
+	}
+	r.byID[user.ID] = user
+	return nil
+}
+
+func (r *fakeUserRepo) GetPasswordHashByUserID(_ context.Context, userID uint) (string, error) {
+	if hash, ok := r.passwords[userID]; ok {
+		return hash, nil
+	}
+	return "", auth.ErrUserNotFound
+}
+
+func (r *fakeUserRepo) GetSSOAccount(_ context.Context, provider string, providerID string) (auth.User, bool, error) {
+	user, ok := r.ssoAccounts[provider+":"+providerID]
+	return user, ok, nil
+}
+
+func (r *fakeUserRepo) CreateSSOUser(_ context.Context, user auth.User, account auth.SSOAccount) (auth.User, error) {
+	user.ID = uint(len(r.byUsername) + 1)
+	r.byUsername[user.Username] = user
+	r.byEmail[user.Email] = user
+	if user.Mobile != "" {
+		r.byMobile[user.Mobile] = user
+	}
+	r.byID[user.ID] = user
+	r.ssoAccounts[account.Provider+":"+account.ProviderID] = user
+	return user, nil
+}
+
+func (r *fakeUserRepo) LinkSSOAccount(_ context.Context, userID uint, account auth.SSOAccount) error {
+	user, ok := r.byID[userID]
+	if !ok {
+		return auth.ErrUserNotFound
+	}
+	r.ssoAccounts[account.Provider+":"+account.ProviderID] = user
+	return nil
 }
 
 type fakeOTPProvider struct{}
@@ -145,34 +204,52 @@ func newTestHTTPHandlerWithLimiter(t *testing.T, limiter auth.RateLimiter) *Hand
 	repo := &fakeUserRepo{
 		byUsername: map[string]auth.User{
 			"john": {
-				ID:             1,
-				Username:       "john",
-				PasswordHash:   passwordHash,
-				Email:          "john@example.com",
-				Mobile:         "+919642560235",
-				MobileVerified: true,
+				ID:                1,
+				Username:          "john",
+				Email:             "john@example.com",
+				Mobile:            "+919642560235",
+				MobileVerified:    true,
+				Role:              auth.RoleCustomer,
+				IsProfileComplete: true,
 			},
 		},
 		byEmail: map[string]auth.User{
 			"john@example.com": {
-				ID:             1,
-				Username:       "john",
-				PasswordHash:   passwordHash,
-				Email:          "john@example.com",
-				Mobile:         "+919642560235",
-				MobileVerified: true,
+				ID:                1,
+				Username:          "john",
+				Email:             "john@example.com",
+				Mobile:            "+919642560235",
+				MobileVerified:    true,
+				Role:              auth.RoleCustomer,
+				IsProfileComplete: true,
 			},
 		},
 		byMobile: map[string]auth.User{
 			"+919642560235": {
-				ID:             1,
-				Username:       "john",
-				PasswordHash:   passwordHash,
-				Email:          "john@example.com",
-				Mobile:         "+919642560235",
-				MobileVerified: true,
+				ID:                1,
+				Username:          "john",
+				Email:             "john@example.com",
+				Mobile:            "+919642560235",
+				MobileVerified:    true,
+				Role:              auth.RoleCustomer,
+				IsProfileComplete: true,
 			},
 		},
+		byID: map[uint]auth.User{
+			1: {
+				ID:                1,
+				Username:          "john",
+				Email:             "john@example.com",
+				Mobile:            "+919642560235",
+				MobileVerified:    true,
+				Role:              auth.RoleCustomer,
+				IsProfileComplete: true,
+			},
+		},
+		passwords: map[uint]string{
+			1: passwordHash,
+		},
+		ssoAccounts: map[string]auth.User{},
 	}
 
 	svc := authservice.New(
@@ -186,6 +263,11 @@ func newTestHTTPHandlerWithLimiter(t *testing.T, limiter auth.RateLimiter) *Hand
 			PendingSignupTTL: 10 * time.Minute,
 			ResendCooldown:   time.Minute,
 			MaxResends:       5,
+		},
+		auth.GoogleConfig{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			RedirectURI:  "http://localhost:8080/auth/google/callback",
 		},
 	)
 
