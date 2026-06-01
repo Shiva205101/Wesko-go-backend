@@ -72,6 +72,9 @@ jobs:
     needs:
       - quality
     environment: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'production' || 'staging' }}
+    env:
+      GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT_SECRET: ${{ secrets.GCP_SERVICE_ACCOUNT }}
     permissions:
       contents: read
       id-token: write
@@ -101,16 +104,16 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Authenticate to Google Cloud
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET != '' && env.GCP_SERVICE_ACCOUNT_SECRET != '' }}
         id: auth
         uses: google-github-actions/auth@v3
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT_SECRET }}
           token_format: access_token
 
       - name: Validate Google auth configuration
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' || secrets.GCP_SERVICE_ACCOUNT == '' }}
+        if: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET == '' || env.GCP_SERVICE_ACCOUNT_SECRET == '' }}
         run: |
           echo "Missing GCP auth secrets for the selected GitHub Environment." >&2
           echo "Set GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT in the environment used by this ref." >&2
@@ -187,6 +190,9 @@ jobs:
       group: deploy-${{ github.ref_name }}
       cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    env:
+      GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT_SECRET: ${{ secrets.GCP_SERVICE_ACCOUNT }}
     permissions:
       contents: read
       id-token: write
@@ -208,14 +214,14 @@ jobs:
           fi
 
       - name: Authenticate to Google Cloud
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET != '' && env.GCP_SERVICE_ACCOUNT_SECRET != '' }}
         uses: google-github-actions/auth@v3
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT_SECRET }}
 
       - name: Validate Google auth configuration
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' || secrets.GCP_SERVICE_ACCOUNT == '' }}
+        if: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER_SECRET == '' || env.GCP_SERVICE_ACCOUNT_SECRET == '' }}
         run: |
           echo "Missing GCP auth secrets for the selected GitHub Environment." >&2
           echo "Set GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT in the active deployment environment." >&2
