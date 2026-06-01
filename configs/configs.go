@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 )
 
 const (
+	DatabaseURL                      = "DATABASE_URL"
 	DBHost                           = "DB_HOST"
 	DBPort                           = "DB_PORT"
 	DBUser                           = "DB_USER"
@@ -32,9 +34,11 @@ const (
 	RedisWriteTimeout                = "REDIS_WRITE_TIMEOUT_SECONDS"
 	RedisPoolTimeout                 = "REDIS_POOL_TIMEOUT_MILLISECONDS"
 	HTTPPort                         = "HTTP_PORT"
+	Port                             = "PORT"
 	HTTPAllowedOrigins               = "HTTP_ALLOWED_ORIGINS"
 	AuthIssuer                       = "AUTH_ISSUER"
 	AuthJWEKey                       = "AUTH_JWE_KEY"
+	JWTSecret                        = "JWT_SECRET"
 	AccessTokenTTL                   = "AUTH_ACCESS_TOKEN_TTL_SECONDS"
 	RefreshTokenTTL                  = "AUTH_REFRESH_TOKEN_TTL_SECONDS"
 	AuthCookieName                   = "AUTH_COOKIE_NAME"
@@ -119,6 +123,16 @@ func getEnvString(env, fallBack string) string {
 	return val
 }
 
+func getFirstEnvString(fallBack string, envs ...string) string {
+	for _, env := range envs {
+		if value, ok := os.LookupEnv(env); ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+
+	return fallBack
+}
+
 func getEnvBool(env string, fallBack bool) bool {
 	b, err := strconv.ParseBool(os.Getenv(env))
 	if err != nil {
@@ -153,17 +167,54 @@ func getEnvCSV(env string) []string {
 	return values
 }
 
+func loadDBConfig() dbase.DBConfig {
+	cfg := dbase.DBConfig{
+		Host:     getEnvString(DBHost, "localhost"),
+		Port:     getEnvString(DBPort, "5432"),
+		User:     getEnvString(DBUser, "postgres"),
+		DBName:   getEnvString(DBName, "vesko-backend"),
+		Password: getEnvString(DBPass, ""),
+		SSLMode:  getEnvString(DBSSLMode, "disable"),
+		Debug:    getEnvBool(DBDebug, false),
+	}
+
+	rawURL := strings.TrimSpace(os.Getenv(DatabaseURL))
+	if rawURL == "" {
+		return cfg
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return cfg
+	}
+
+	if host := parsed.Hostname(); host != "" {
+		cfg.Host = host
+	}
+	if port := parsed.Port(); port != "" {
+		cfg.Port = port
+	}
+	if parsed.User != nil {
+		if user := parsed.User.Username(); user != "" {
+			cfg.User = user
+		}
+		if password, ok := parsed.User.Password(); ok {
+			cfg.Password = password
+		}
+	}
+	if dbName := strings.TrimPrefix(parsed.Path, "/"); dbName != "" {
+		cfg.DBName = dbName
+	}
+	if sslmode := parsed.Query().Get("sslmode"); sslmode != "" {
+		cfg.SSLMode = sslmode
+	}
+
+	return cfg
+}
+
 func Load() *Configs {
 	return &Configs{
-		DBConfig: dbase.DBConfig{
-			Host:     getEnvString(DBHost, "localhost"),
-			Port:     getEnvString(DBPort, "5432"),
-			User:     getEnvString(DBUser, "postgres"),
-			DBName:   getEnvString(DBName, "vesko-backend"),
-			Password: getEnvString(DBPass, ""),
-			SSLMode:  getEnvString(DBSSLMode, "disable"),
-			Debug:    getEnvBool(DBDebug, false),
-		},
+		DBConfig: loadDBConfig(),
 		RedisConfig: vredis.Config{
 			Addr:         net.JoinHostPort(getEnvString(RedisHost, "localhost"), getEnvString(RedisPort, "6379")),
 			Username:     getEnvString(RedisUser, ""),
@@ -176,19 +227,19 @@ func Load() *Configs {
 			DialTimeout:  time.Duration(getEnvInt(RedisDialTimeout, 5)) * time.Second,
 		},
 		HTTP: HTTPConfig{
-			Port:           getEnvString(HTTPPort, "8080"),
+			Port:           getFirstEnvString("8080", HTTPPort, Port),
 			AllowedOrigins: getEnvCSV(HTTPAllowedOrigins),
 		},
 		Auth: AuthConfig{
 			Issuer:                 getEnvString(AuthIssuer, "vesko"),
-			JWEKey:                 getEnvString(AuthJWEKey, ""),
+			JWEKey:                 getFirstEnvString("", AuthJWEKey, JWTSecret),
 			AccessTokenTTL:         time.Duration(getEnvInt(AccessTokenTTL, 900)) * time.Second,
 			RefreshTokenTTL:        time.Duration(getEnvInt(RefreshTokenTTL, 86400)) * time.Second,
 			CookieName:             getEnvString(AuthCookieName, "refresh_token"),
 			CookieDomain:           getEnvString(AuthCookieDomain, ""),
 			CookiePath:             getEnvString(AuthCookiePath, "/auth"),
-			CookieSecure:           getEnvBool(AuthCookieSecure, true),
-			CookieHTTPOnly:         getEnvBool(AuthCookieHTTPOnly, true),
+			CookieSecure:           getEnvBool(AuthCookieSecure, false),
+			CookieHTTPOnly:         getEnvBool(AuthCookieHTTPOnly, false),
 			CookieSameSite:         getEnvString(AuthCookieSameSite, "lax"),
 			TwilioAccountSID:       getEnvString(TwilioAccountSID, ""),
 			TwilioAuthToken:        getEnvString(TwilioAuthToken, ""),
@@ -255,18 +306,6 @@ func (c *Configs) Validate() error {
 		return fmt.Errorf("%s is required", AuthCSRFHeaderName)
 	case c.Auth.CSRFCookiePath == "":
 		return fmt.Errorf("%s is required", AuthCSRFCookiePath)
-	case c.Auth.GoogleClientID == "":
-		return fmt.Errorf("%s is required", GoogleClientID)
-	case c.Auth.GoogleClientSecret == "":
-		return fmt.Errorf("%s is required", GoogleClientSecret)
-	case c.Auth.GoogleRedirectURI == "":
-		return fmt.Errorf("%s is required", GoogleRedirectURI)
-	case c.Auth.TwilioAccountSID == "":
-		return fmt.Errorf("%s is required", TwilioAccountSID)
-	case c.Auth.TwilioAuthToken == "":
-		return fmt.Errorf("%s is required", TwilioAuthToken)
-	case c.Auth.TwilioVerifyServiceSID == "":
-		return fmt.Errorf("%s is required", TwilioVerifyServiceSID)
 	case c.Auth.PendingSignupTTL <= 0:
 		return fmt.Errorf("%s must be greater than 0", AuthPendingSignupTTL)
 	case c.Auth.OTPResendCooldown < 0:

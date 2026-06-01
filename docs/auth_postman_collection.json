@@ -1,0 +1,152 @@
+{
+	"info": {
+		"name": "Vesko Auth Service",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Traditional (Mobile + Password)",
+			"item": [
+				{
+					"name": "1. Request Signup OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"johndoe\",\n    \"password\": \"Password123!\",\n    \"email\": \"john@example.com\",\n    \"mobile\": \"9876543210\",\n    \"client_type\": \"web\"\n}"
+						},
+						"url": "{{base_url}}/auth/signup/request-otp"
+					}
+				},
+				{
+					"name": "2. Verify Signup OTP (Register)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\",\n    \"code\": \"123456\",\n    \"client_type\": \"web\"\n}"
+						},
+						"url": "{{base_url}}/auth/signup/verify-otp"
+					}
+				},
+				{
+					"name": "3. Password Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"johndoe\",\n    \"password\": \"Password123!\",\n    \"client_type\": \"web\"\n}"
+						},
+						"url": "{{base_url}}/auth/login"
+					}
+				}
+			]
+		},
+		{
+			"name": "Google SSO",
+			"item": [
+				{
+					"name": "Google Login Redirect",
+					"request": {
+						"method": "GET",
+						"url": "{{base_url}}/auth/google/login"
+					},
+					"description": "Call this in a browser to see the Google Auth page."
+				},
+				{
+					"name": "Google Callback",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/auth/google/callback?code=CODE_FROM_GOOGLE&client_type=web",
+							"query": [
+								{ "key": "code", "value": "CODE_FROM_GOOGLE" },
+								{ "key": "client_type", "value": "web" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Complete Profile (SSO First-time)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }] },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"john_google\",\n    \"mobile\": \"9876543211\",\n    \"client_type\": \"web\"\n}"
+						},
+						"url": "{{base_url}}/auth/profile/complete"
+					}
+				}
+			]
+		},
+		{
+			"name": "Session Management",
+			"item": [
+				{
+					"name": "Get Me (Current User)",
+					"request": {
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }] },
+						"method": "GET",
+						"url": "{{base_url}}/auth/me"
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refresh_token}}\",\n    \"client_type\": \"android\"\n}"
+						},
+						"url": "{{base_url}}/auth/refresh"
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refresh_token}}\",\n    \"client_type\": \"web\"\n}"
+						},
+						"url": "{{base_url}}/auth/logout"
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": { "type": "text/javascript", "exec": [ "" ] }
+		},
+		{
+			"listen": "test",
+			"script": { "type": "text/javascript", "exec": [ "" ] }
+		}
+	],
+	"variable": [
+		{ "key": "base_url", "value": "http://localhost:8080" },
+		{ "key": "access_token", "value": "" },
+		{ "key": "refresh_token", "value": "" }
+	]
+}

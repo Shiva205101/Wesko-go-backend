@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	"vesko/auth"
@@ -16,6 +17,7 @@ import (
 	rediscache "vesko/cache/redis"
 	"vesko/configs"
 	"vesko/dbase/userdao"
+	"vesko/internal/observability"
 	"vesko/logger"
 	"vesko/server"
 
@@ -24,23 +26,21 @@ import (
 )
 
 func main() {
-	env, exists := os.LookupEnv("ENV")
-	if !exists {
-		env = "dev"
-	}
+	env := normalizeEnv(os.Getenv("ENV"))
 
-	appLogger := logger.New("vesko-auth", env)
+	appLogger := logger.New("wesko-api", env)
 
-	if env == "dev" {
+	if isDotEnvEnvironment(env) {
 		err := godotenv.Load(configs.EnvConfigFilePath)
 		if err != nil {
 			fatal(appLogger, "failed to load env file", err)
 		}
 	}
 
-	if env == "prod" {
+	if isReleaseEnvironment(env) {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	observability.Configure()
 
 	envConfigs := configs.Load()
 	if err := envConfigs.Validate(); err != nil {
@@ -78,6 +78,10 @@ func main() {
 
 	if err := rediscache.Ping(ctx, redisClient); err != nil {
 		fatal(appLogger, "redis connection failed", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		fatal(appLogger, "database sql handle failed", err)
 	}
 
 	tokenManager, err := auth.NewTokenManager(
@@ -118,6 +122,7 @@ func main() {
 			ClientSecret: envConfigs.Auth.GoogleClientSecret,
 			RedirectURI:  envConfigs.Auth.GoogleRedirectURI,
 		},
+		appLogger,
 	)
 	rateLimiter := rediscache.NewRateLimiter(redisClient)
 	cookieSameSite := http.SameSiteLaxMode
@@ -165,7 +170,16 @@ func main() {
 		IdleTimeout:     30 * time.Second,
 		ShutdownTimeout: 10 * time.Second,
 		BaseContext:     appCtx,
-		Logger:          appLogger,
+		ServiceName:     "wesko-api",
+		Environment:     env,
+		ReadinessCheck: func(ctx context.Context) error {
+			if err := sqlDB.PingContext(ctx); err != nil {
+				return err
+			}
+
+			return rediscache.Ping(ctx, redisClient)
+		},
+		Logger: appLogger,
 	}, authHandler)
 
 	serverErrCh := make(chan error, 1)
@@ -201,6 +215,29 @@ func mapSameSite(value string) http.SameSite {
 	default:
 		return http.SameSiteLaxMode
 	}
+}
+
+func normalizeEnv(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "dev", "development":
+		return "development"
+	case "local":
+		return "local"
+	case "stage", "staging":
+		return "staging"
+	case "prod", "production":
+		return "production"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func isDotEnvEnvironment(env string) bool {
+	return env == "local" || env == "development"
+}
+
+func isReleaseEnvironment(env string) bool {
+	return env == "staging" || env == "production"
 }
 
 func fatal(logger *slog.Logger, message string, err error) {

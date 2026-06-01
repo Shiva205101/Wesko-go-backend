@@ -269,6 +269,7 @@ func newTestHTTPHandlerWithLimiter(t *testing.T, limiter auth.RateLimiter) *Hand
 			ClientSecret: "client-secret",
 			RedirectURI:  "http://localhost:8080/auth/google/callback",
 		},
+		nil,
 	)
 
 	return NewWithLimiter(svc, nil, CookieConfig{}, limiter, auth.OTPRateLimitConfig{
@@ -312,6 +313,14 @@ func TestPasswordLoginWebSetsCookiesAndOmitsRefreshToken(t *testing.T) {
 	var resp map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
+	}
+
+	user := resp["user"].(map[string]any)
+	if got := user["role"]; got != string(auth.RoleCustomer) {
+		t.Fatalf("expected role %q, got %#v", auth.RoleCustomer, got)
+	}
+	if got := user["is_profile_complete"]; got != true {
+		t.Fatalf("expected is_profile_complete true, got %#v", got)
 	}
 
 	tokens := resp["tokens"].(map[string]any)

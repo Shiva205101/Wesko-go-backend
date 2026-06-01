@@ -29,7 +29,8 @@ func New(service string, env string) *slog.Logger {
 }
 
 func newHandler(env string, opts *slog.HandlerOptions) slog.Handler {
-	if strings.EqualFold(strings.TrimSpace(env), "prod") {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "prod", "production", "staging":
 		return slog.NewJSONHandler(os.Stdout, opts)
 	}
 

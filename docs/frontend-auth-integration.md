@@ -125,7 +125,12 @@ Success: `200 OK`
 
 Response shape matches Password Login.
 
-**Note:** If `is_profile_complete` is `false`, the issued `access_token` is a **partial token**. It only allows access to the Profile Completion endpoint. The frontend must redirect the user to a profile completion form.
+Frontend decision rule after callback:
+
+- if `user.is_profile_complete === false`, redirect the user to the profile completion form
+- if `user.is_profile_complete === true`, do not call `POST /auth/profile/complete`; treat login as complete and continue to the app
+
+**Note:** If `is_profile_complete` is `false`, the issued `access_token` is a **partial token**. It only allows access to the Profile Completion endpoint.
 
 ### 3. Complete Profile (Mandatory for new SSO users)
 Used to set a `username` and `mobile` number after the first Google login.
@@ -145,6 +150,8 @@ Request:
 
 Success: `200 OK`
 Returns a new `user` object with `is_profile_complete: true` and a fresh full `access_token`.
+
+**Important:** This endpoint is only for first-time SSO users whose callback response returned `user.is_profile_complete: false`. Calling it again for an already completed account will return `400 profile already complete`.
 
 ## OTP Signup Flow
 

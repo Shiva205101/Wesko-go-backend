@@ -74,13 +74,15 @@ type refreshRequest struct {
 }
 
 type userResponse struct {
-	ID             uint   `json:"id"`
-	Username       string `json:"username"`
-	Email          string `json:"email,omitempty"`
-	Mobile         string `json:"mobile,omitempty"`
-	MobileVerified bool   `json:"mobile_verified"`
-	CreatedAt      string `json:"created_at,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"`
+	ID                uint      `json:"id"`
+	Username          string    `json:"username"`
+	Email             string    `json:"email,omitempty"`
+	Mobile            string    `json:"mobile,omitempty"`
+	MobileVerified    bool      `json:"mobile_verified"`
+	Role              auth.Role `json:"role"`
+	IsProfileComplete bool      `json:"is_profile_complete"`
+	CreatedAt         string    `json:"created_at,omitempty"`
+	UpdatedAt         string    `json:"updated_at,omitempty"`
 }
 
 type errorResponse struct {
@@ -734,11 +736,13 @@ func (h *Handler) requireCSRFFromWeb(c *gin.Context, clientType string) error {
 
 func toUserResponse(user auth.User) userResponse {
 	resp := userResponse{
-		ID:             user.ID,
-		Username:       user.Username,
-		Email:          user.Email,
-		Mobile:         user.Mobile,
-		MobileVerified: user.MobileVerified,
+		ID:                user.ID,
+		Username:          user.Username,
+		Email:             user.Email,
+		Mobile:            user.Mobile,
+		MobileVerified:    user.MobileVerified,
+		Role:              user.Role,
+		IsProfileComplete: user.IsProfileComplete,
 	}
 	if !user.CreatedAt.IsZero() {
 		resp.CreatedAt = user.CreatedAt.UTC().Format(time.RFC3339)

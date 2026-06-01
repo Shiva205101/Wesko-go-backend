@@ -73,6 +73,9 @@ validation/            shared request validation wrapper
   - signs in an already linked Google account
   - links to an existing Vesko account with the same email
   - creates a new SSO account with `is_profile_complete=false`
+- frontend must branch on `user.is_profile_complete` from the callback response:
+  - `false`: show profile completion and call `POST /auth/profile/complete`
+  - `true`: skip profile completion and continue to the app
 - first-time SSO users must call `POST /auth/profile/complete` with their access token to set `username` and `mobile`
 - partial SSO access tokens are not accepted by `GET /auth/me`
 

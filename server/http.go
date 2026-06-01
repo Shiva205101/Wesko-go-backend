@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"vesko/internal/observability"
+	"vesko/pkg/buildinfo"
 	"vesko/requestctx"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +30,9 @@ type Config struct {
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
 	BaseContext     context.Context
+	ServiceName     string
+	Environment     string
+	ReadinessCheck  func(context.Context) error
 	Logger          *slog.Logger
 }
 
@@ -50,6 +55,7 @@ func New(cfg Config, routeRegistrar RouteRegistrar) *HTTPServer {
 	router := gin.New()
 	router.Use(
 		requestContextMiddleware(),
+		observability.HTTPMiddleware(cfg.ServiceName),
 		corsMiddleware(cfg.AllowedOrigins),
 		accessLogMiddleware(serverLogger),
 		gin.CustomRecovery(func(c *gin.Context, recovered any) {
@@ -63,8 +69,33 @@ func New(cfg Config, routeRegistrar RouteRegistrar) *HTTPServer {
 		}),
 	)
 
+	healthResponse := gin.H{
+		"status":     "ok",
+		"service":    cfg.ServiceName,
+		"env":        cfg.Environment,
+		"version":    buildinfo.Version,
+		"commit":     buildinfo.Commit,
+		"build_date": buildinfo.BuildDate,
+	}
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, healthResponse)
+	})
 	router.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, healthResponse)
+	})
+	router.GET("/ready", func(c *gin.Context) {
+		if cfg.ReadinessCheck != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+			defer cancel()
+
+			if err := cfg.ReadinessCheck(ctx); err != nil {
+				serverLogger.Warn("readiness check failed", "error", err.Error())
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	})
 	routeRegistrar.RegisterRoutes(router)
 
@@ -168,32 +199,127 @@ func accessLogMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		if start.IsZero() {
 			start = time.Now().UTC()
 		}
-		c.Next()
 
-		path := c.FullPath()
-		if path == "" {
-			path = c.Request.URL.Path
+		requestPath := c.Request.URL.Path
+		routePath := c.FullPath()
+		if routePath == "" {
+			routePath = requestPath
 		}
 
+		logger.Info("http request started",
+			"type", "http_access",
+			"phase", "start",
+			"request_id", requestctx.RequestID(c.Request.Context()),
+			"method", c.Request.Method,
+			"path", requestPath,
+			"route", routePath,
+			"client_ip", c.ClientIP(),
+			"bytes_in", c.Request.ContentLength,
+		)
+
+		c.Next()
+
+		path := c.Request.URL.Path
+		route := c.FullPath()
+		if route == "" {
+			route = path
+		}
+
+		status := c.Writer.Status()
 		logFn := logger.Info
-		if len(c.Errors) > 0 || c.Writer.Status() >= http.StatusInternalServerError {
+		logClientDetails := false
+		if len(c.Errors) > 0 || status >= http.StatusInternalServerError {
 			logFn = logger.Error
-		} else if c.Writer.Status() >= http.StatusBadRequest {
+			logClientDetails = true
+		} else if status >= http.StatusBadRequest {
 			logFn = logger.Warn
+			logClientDetails = true
 		}
 
 		logFn("http request completed",
 			"type", "http_access",
+			"phase", "finish",
 			"request_id", requestctx.RequestID(c.Request.Context()),
 			"method", c.Request.Method,
 			"path", path,
-			"status", c.Writer.Status(),
+			"route", route,
+			"status", status,
 			"latency_ms", float64(time.Since(start).Microseconds())/1000.0,
 			"client_ip", c.ClientIP(),
-			"user_agent", c.Request.UserAgent(),
 			"bytes_in", c.Request.ContentLength,
 			"bytes_out", c.Writer.Size(),
 			"errors", c.Errors.String(),
 		)
+
+		if logClientDetails {
+			browser, platform, deviceType := summarizeUserAgent(c.Request.UserAgent())
+			logFn("http request client details",
+				"type", "http_access",
+				"phase", "client",
+				"request_id", requestctx.RequestID(c.Request.Context()),
+				"method", c.Request.Method,
+				"path", path,
+				"route", route,
+				"status", status,
+				"client_ip", c.ClientIP(),
+				"browser", browser,
+				"platform", platform,
+				"device_type", deviceType,
+				"user_agent", c.Request.UserAgent(),
+			)
+		}
 	}
+}
+
+func summarizeUserAgent(userAgent string) (browser string, platform string, deviceType string) {
+	ua := strings.ToLower(strings.TrimSpace(userAgent))
+	if ua == "" {
+		return "unknown", "unknown", "unknown"
+	}
+
+	browser = "unknown"
+	switch {
+	case strings.Contains(ua, "edg/"):
+		browser = "edge"
+	case strings.Contains(ua, "opr/"), strings.Contains(ua, "opera"):
+		browser = "opera"
+	case strings.Contains(ua, "chrome/") && !strings.Contains(ua, "edg/") && !strings.Contains(ua, "opr/"):
+		browser = "chrome"
+	case strings.Contains(ua, "firefox/"):
+		browser = "firefox"
+	case strings.Contains(ua, "safari/") && !strings.Contains(ua, "chrome/"):
+		browser = "safari"
+	case strings.Contains(ua, "postmanruntime/"):
+		browser = "postman"
+	case strings.Contains(ua, "curl/"):
+		browser = "curl"
+	}
+
+	platform = "unknown"
+	switch {
+	case strings.Contains(ua, "windows"):
+		platform = "windows"
+	case strings.Contains(ua, "android"):
+		platform = "android"
+	case strings.Contains(ua, "iphone"), strings.Contains(ua, "ipad"), strings.Contains(ua, "ios"):
+		platform = "ios"
+	case strings.Contains(ua, "mac os x"), strings.Contains(ua, "macintosh"):
+		platform = "macos"
+	case strings.Contains(ua, "linux"):
+		platform = "linux"
+	}
+
+	deviceType = "desktop"
+	switch {
+	case strings.Contains(ua, "bot"), strings.Contains(ua, "spider"), strings.Contains(ua, "crawler"):
+		deviceType = "bot"
+	case strings.Contains(ua, "ipad"), strings.Contains(ua, "tablet"):
+		deviceType = "tablet"
+	case strings.Contains(ua, "mobile"), strings.Contains(ua, "iphone"), strings.Contains(ua, "android"):
+		deviceType = "mobile"
+	case browser == "curl" || browser == "postman":
+		deviceType = "script"
+	}
+
+	return browser, platform, deviceType
 }

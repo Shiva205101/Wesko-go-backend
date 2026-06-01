@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+.agents
+.codex
+docs
+deployment
+configs/.env.config
+tmp
+*.md

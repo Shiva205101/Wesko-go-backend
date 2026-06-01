@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Go Backend Plan - TPRD Aligned</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.45; margin: 36px; color:#111; }
+    h1,h2,h3 { color:#0b3d91; margin-bottom: 6px; }
+    p, li { font-size: 14px; }
+    code { background:#f3f4f6; padding:2px 4px; border-radius:4px; }
+    ul, ol { margin-top: 4px; }
+    .small { color:#444; font-size: 13px; }
+  </style>
+</head>
+<body>
+<h1>Go Backend Plan for Clothing Marketplace (TPRD V2 Aligned)</h1>
+<p class="small">Stack: Go + Gin + PostgreSQL + Redis + Razorpay + AWS | API: REST + OpenAPI | Architecture: Modular Monolith</p>
+
+<h2>What Was Added From TPRD Gap Review</h2>
+<ul>
+  <li>OTP-based auth (mobile/email), logout/session revocation, and saved size profile APIs.</li>
+  <li>Bulk product upload, fabric/performance attribute mapping, and product availability APIs.</li>
+  <li>Coupon validation engine, COD eligibility logic, GST + shipping charge calculation.</li>
+  <li>Shipment tracking sync, shipping partner webhooks, returns/refunds, COD reconciliation.</li>
+  <li>Rule-based fit recommendation engine (height/weight/fit preference -> size + confidence).</li>
+  <li>Push notifications + event trigger matrix (order/cart lifecycle events).</li>
+  <li>Banner/CMS APIs for marketing/homepage sections.</li>
+  <li>Event tracking APIs, conversion funnel analytics, return reason analytics.</li>
+  <li>Infra specifics: dev/staging/prod, CDN, ALB/autoscaling, Redis, rollback and DR targets.</li>
+</ul>
+
+<h2>Phase-wise Delivery (12-16 Weeks)</h2>
+
+<h3>Phase 0 (Week 1-2): Platform Foundation</h3>
+<ul>
+  <li>Repo setup with modules: auth, catalog, inventory, cart, checkout, orders, payments, notifications, cms, fit, analytics.</li>
+  <li>Common layers: config, logging, error model, validation, middleware, RBAC support.</li>
+  <li>AWS baseline: VPC, ECS, RDS, Redis, S3, ALB, CloudWatch, Secrets Manager.</li>
+  <li>Environments and CI/CD: dev, staging, prod with rollback strategy and quality gates.</li>
+</ul>
+
+<h3>Phase 1 (Week 2-3): Auth and User Management</h3>
+<ul>
+  <li>Login/signup via OTP (mobile/email), JWT access/refresh, logout token revocation.</li>
+  <li>Password reset (email), role-based access (Admin/Ops/Customer).</li>
+  <li>User profile APIs including saved address and saved size profile.</li>
+</ul>
+
+<h3>Phase 2 (Week 3-5): Catalog, Discovery, and CMS</h3>
+<ul>
+  <li>Category/product/SKU CRUD with size-color mapping and availability APIs.</li>
+  <li>Fabric and performance attributes; pricing and discount rules.</li>
+  <li>Bulk product upload endpoints and job tracking.</li>
+  <li>CMS/banner APIs for hero, featured, and campaign sections.</li>
+</ul>
+
+<h3>Phase 3 (Week 5-8): Cart, Checkout, Orders, Payments</h3>
+<ul>
+  <li>Cart create/update/remove APIs, coupon validation, shipping charges and GST computation.</li>
+  <li>COD eligibility checks by pincode/order value and payment method selection support.</li>
+  <li>Razorpay payment intent/order creation, webhook verification, idempotent capture flow.</li>
+  <li>OMS lifecycle + shipment tracking sync + returns/refunds + COD reconciliation.</li>
+</ul>
+
+<h3>Phase 4 (Week 8-10): Inventory and Admin Operations</h3>
+<ul>
+  <li>Real-time SKU stock APIs, checkout-time stock lock/reservation, low-stock alerts.</li>
+  <li>Manual stock adjustment APIs and restock recommendation inputs.</li>
+  <li>Admin APIs for product/inventory/orders/users/CMS with audit logs.</li>
+</ul>
+
+<h3>Phase 5 (Week 10-12): Fit, Notifications, and Analytics</h3>
+<ul>
+  <li>Fit recommendation engine (rules-based) returning recommended size and confidence score.</li>
+  <li>Email/SMS/Push notifications for order/cart lifecycle events.</li>
+  <li>Event ingestion APIs, server-side analytics, conversion funnel, SKU performance, return reasons.</li>
+</ul>
+
+<h3>Phase 6 (Week 12-16): Hardening and Go-Live</h3>
+<ul>
+  <li>Security: SSL, WAF/firewall, rate limiting, secrets rotation.</li>
+  <li>Reliability: health checks, monitoring, error tracking, alerting and incident runbooks.</li>
+  <li>Performance: DB tuning, Redis cache strategy, autoscaling thresholds, load testing.</li>
+  <li>Backup/DR: retention policy, restore tests, RTO/RPO sign-off and production cutover.</li>
+</ul>
+
+<h2>API and Interface Requirements</h2>
+<ul>
+  <li>REST under <code>/api/v1</code> with OpenAPI contracts for all customer/admin endpoints.</li>
+  <li>Core interfaces: <code>PaymentProvider</code>, <code>ShippingProvider</code>, <code>OtpProvider</code>, <code>NotificationProvider</code>, <code>TaxCalculator</code>.</li>
+  <li>Idempotency required for checkout/order/payment webhooks and retries.</li>
+</ul>
+
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li>Successful purchase flow: browse -> cart -> coupon -> checkout -> Razorpay payment -> confirmation.</li>
+  <li>Failed payment retry does not create duplicate orders/payments.</li>
+  <li>Inventory reservation prevents overselling under concurrency.</li>
+  <li>Shipment webhook updates order timeline correctly.</li>
+  <li>Returns/refunds/COD reconciliation reports are accurate.</li>
+  <li>Analytics dashboards reconcile with transactional source tables.</li>
+</ul>
+
+<h2>Assumptions</h2>
+<ul>
+  <li>India-first launch (INR, GST, Razorpay, COD support).</li>
+  <li>Single brand initially, schema remains multi-brand ready.</li>
+  <li>Web + mobile clients consume the same backend APIs.</li>
+</ul>
+</body>
+</html>

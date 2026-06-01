@@ -282,6 +282,7 @@ func newTestService(t *testing.T) (*Service, *fakeUserRepo, *fakeOTPProvider, *f
 			ClientSecret: "client-secret",
 			RedirectURI:  "redirect-uri",
 		},
+		nil,
 	)
 
 	return service, repo, provider, pendingStore, otpStore

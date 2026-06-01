@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"vesko/auth"
+	"vesko/requestctx"
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
@@ -25,6 +27,7 @@ type Service struct {
 	loginOTPStore      auth.OTPRequestStateStore
 	otpConfig          auth.OTPConfig
 	googleConfig       auth.GoogleConfig
+	logger             *slog.Logger
 }
 
 func New(repo auth.UserRepository,
@@ -34,7 +37,12 @@ func New(repo auth.UserRepository,
 	pendingSignupStore auth.PendingSignupStore,
 	loginOTPStore auth.OTPRequestStateStore,
 	otpConfig auth.OTPConfig,
-	googleConfig auth.GoogleConfig) *Service {
+	googleConfig auth.GoogleConfig,
+	logger *slog.Logger) *Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Service{
 		repo:               repo,
 		tokenManager:       tokenManager,
@@ -44,6 +52,7 @@ func New(repo auth.UserRepository,
 		loginOTPStore:      loginOTPStore,
 		otpConfig:          otpConfig,
 		googleConfig:       googleConfig,
+		logger:             logger.With("component", "auth_service"),
 	}
 }
 
@@ -395,6 +404,7 @@ func (s *Service) GetGoogleAuthURL() string {
 }
 
 func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth.TokenPair, error) {
+	requestID := requestctx.RequestID(ctx)
 	conf := &oauth2.Config{
 		ClientID:     s.googleConfig.ClientID,
 		ClientSecret: s.googleConfig.ClientSecret,
@@ -418,6 +428,17 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 		return auth.User{}, auth.TokenPair{}, err
 	}
 
+	fmt.Println(userInfo)
+
+	s.logger.Info("google login identity resolved",
+		"request_id", requestID,
+		"provider", "google",
+		"provider_id", userInfo.Id,
+		"email", userInfo.Email,
+	)
+
+	fmt.Println("userId", userInfo.Id)
+
 	// 1. Check if SSO account exists
 	user, exists, err := s.repo.GetSSOAccount(ctx, "google", userInfo.Id)
 	if err != nil {
@@ -426,6 +447,13 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 
 	if exists {
 		tokens, err := s.IssueTokenPair(ctx, user)
+		s.logger.Info("google login resolved",
+			"request_id", requestID,
+			"branch", "existing_sso_account",
+			"user_id", user.ID,
+			"username", user.Username,
+			"is_profile_complete", user.IsProfileComplete,
+		)
 		return user, tokens, err
 	}
 
@@ -443,6 +471,13 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 		}
 
 		tokens, err := s.IssueTokenPair(ctx, user)
+		s.logger.Info("google login resolved",
+			"request_id", requestID,
+			"branch", "auto_link_existing_email",
+			"user_id", user.ID,
+			"username", user.Username,
+			"is_profile_complete", user.IsProfileComplete,
+		)
 		return user, tokens, err
 	}
 
@@ -478,6 +513,13 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 	}
 
 	tokens, err := s.IssueTokenPair(ctx, user)
+	s.logger.Info("google login resolved",
+		"request_id", requestID,
+		"branch", "new_sso_user_created",
+		"user_id", user.ID,
+		"username", user.Username,
+		"is_profile_complete", user.IsProfileComplete,
+	)
 	return user, tokens, err
 }
 

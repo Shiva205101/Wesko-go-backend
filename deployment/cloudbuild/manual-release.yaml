@@ -1,0 +1,40 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE}:${SHORT_SHA}"
+      - "--build-arg"
+      - "VERSION=${SHORT_SHA}"
+      - "--build-arg"
+      - "COMMIT_SHA=${COMMIT_SHA}"
+      - "--build-arg"
+      - "BUILD_DATE=${_BUILD_DATE}"
+      - "."
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE}:${SHORT_SHA}"
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - "-c"
+      - |
+        gcloud run deploy "${_SERVICE}" \
+          --project="${PROJECT_ID}" \
+          --region="${_REGION}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE}:${SHORT_SHA}"
+
+images:
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE}:${SHORT_SHA}"
+
+substitutions:
+  _REGION: asia-south1
+  _REPOSITORY: wesko-backend
+  _IMAGE: wesko-api
+  _SERVICE: wesko-api
+  _BUILD_DATE: "1970-01-01T00:00:00Z"
