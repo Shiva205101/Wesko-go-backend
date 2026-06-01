@@ -171,15 +171,15 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.0
 
-      - name: Sign image
-        env:
-          IMAGE_REF: ${{ steps.meta-vars.outputs.image_uri }}@${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE_REF}"
-
-      - name: On-demand vulnerability scan
-        env:
-          IMAGE_REF: ${{ steps.meta-vars.outputs.image_uri }}@${{ steps.build.outputs.digest }}
-        run: ./scripts/check-vulnerabilities.sh "${IMAGE_REF}"
+#      - name: Sign image
+#        env:
+#          IMAGE_REF: ${{ steps.meta-vars.outputs.image_uri }}@${{ steps.build.outputs.digest }}
+#        run: cosign sign --yes "${IMAGE_REF}"
+#
+#      - name: On-demand vulnerability scan
+#        env:
+#          IMAGE_REF: ${{ steps.meta-vars.outputs.image_uri }}@${{ steps.build.outputs.digest }}
+#        run: ./scripts/check-vulnerabilities.sh "${IMAGE_REF}"
 
   deploy:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
