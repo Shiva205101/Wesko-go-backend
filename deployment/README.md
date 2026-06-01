@@ -42,6 +42,12 @@ This directory is the operational baseline for the Wesko backend:
    `RAZORPAY_KEY_ID`
    `RAZORPAY_KEY_SECRET`
 
+   `build-and-publish` now also uses GitHub Environments:
+   `develop` uses `staging`
+   `main` and `v*` tags use `production`
+
+   That means the two GCP auth secrets must exist in both environments, not only in one of them.
+
    `DATABASE_URL` should be a PostgreSQL connection URL such as `postgres://user:password@host:5432/dbname?sslmode=require`.
 
    `JWT_SECRET` must be exactly 32 bytes because the current application uses it as the JWE key.
