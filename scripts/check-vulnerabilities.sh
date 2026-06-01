@@ -8,15 +8,20 @@ fail_on_severity="${FAIL_ON_SEVERITY:-CRITICAL}"
 poll_attempts="${POLL_ATTEMPTS:-12}"
 poll_interval_seconds="${POLL_INTERVAL_SECONDS:-10}"
 
+export CLOUDSDK_CORE_DISABLE_PROMPTS=1
+
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required for vulnerability parsing." >&2
   exit 1
 fi
 
+gcloud components install local-extract --quiet >/dev/null
+
 scan_name="$(
   gcloud artifacts docker images scan "${image_ref}" \
     --remote \
     --location="${scan_location}" \
+    --quiet \
     --format='value(response.scan)'
 )"
 
@@ -31,6 +36,7 @@ trap 'rm -f "${report_file}"' EXIT
 for _ in $(seq 1 "${poll_attempts}"); do
   if gcloud artifacts docker images list-vulnerabilities "${scan_name}" \
     --location="${scan_location}" \
+    --quiet \
     --format=json >"${report_file}" 2>/dev/null; then
     break
   fi
