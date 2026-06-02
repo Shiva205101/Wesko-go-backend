@@ -110,9 +110,10 @@ Non-secrets are versioned in git. Secrets are rotated into Secret Manager during
 
 - Every push to `main` or `develop` must pass the same quality gate.
 - Docker images are tagged with the full git SHA on every pushed branch build.
-- `latest` is only published from the default branch.
 - semantic tags are published from Git tags that match `v*`.
 - Cloud Run deployments use image digests, not mutable tags.
+
+Because the Artifact Registry repository uses immutable tags, the pipeline does not publish a moving `latest` tag. If you truly need `latest`, you must either disable immutable tags for that repository or publish `latest` into a separate mutable repository.
 
 ## Rollback Strategy
 
