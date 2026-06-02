@@ -27,6 +27,7 @@ gcloud services enable \
   monitoring.googleapis.com \
   ondemandscanning.googleapis.com \
   run.googleapis.com \
+  sqladmin.googleapis.com \
   secretmanager.googleapis.com \
   serviceusage.googleapis.com
 
@@ -94,6 +95,10 @@ gcloud artifacts repositories add-iam-policy-binding "${repository}" \
   --location="${region}" \
   --member="serviceAccount:${runtime_sa}" \
   --role="roles/artifactregistry.reader"
+
+gcloud projects add-iam-policy-binding "${project_id}" \
+  --member="serviceAccount:${runtime_sa}" \
+  --role="roles/cloudsql.client"
 
 for secret_name in \
   wesko-database-url-staging \

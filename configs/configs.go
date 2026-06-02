@@ -38,7 +38,6 @@ const (
 	HTTPAllowedOrigins               = "HTTP_ALLOWED_ORIGINS"
 	AuthIssuer                       = "AUTH_ISSUER"
 	AuthJWEKey                       = "AUTH_JWE_KEY"
-	JWTSecret                        = "JWT_SECRET"
 	AccessTokenTTL                   = "AUTH_ACCESS_TOKEN_TTL_SECONDS"
 	RefreshTokenTTL                  = "AUTH_REFRESH_TOKEN_TTL_SECONDS"
 	AuthCookieName                   = "AUTH_COOKIE_NAME"
@@ -208,6 +207,12 @@ func loadDBConfig() dbase.DBConfig {
 	if sslmode := parsed.Query().Get("sslmode"); sslmode != "" {
 		cfg.SSLMode = sslmode
 	}
+	if host := strings.TrimSpace(parsed.Query().Get("host")); host != "" {
+		cfg.Host = host
+	}
+	if port := strings.TrimSpace(parsed.Query().Get("port")); port != "" {
+		cfg.Port = port
+	}
 
 	return cfg
 }
@@ -232,7 +237,7 @@ func Load() *Configs {
 		},
 		Auth: AuthConfig{
 			Issuer:                 getEnvString(AuthIssuer, "vesko"),
-			JWEKey:                 getFirstEnvString("", AuthJWEKey, JWTSecret),
+			JWEKey:                 getEnvString(AuthJWEKey, ""),
 			AccessTokenTTL:         time.Duration(getEnvInt(AccessTokenTTL, 900)) * time.Second,
 			RefreshTokenTTL:        time.Duration(getEnvInt(RefreshTokenTTL, 86400)) * time.Second,
 			CookieName:             getEnvString(AuthCookieName, "refresh_token"),

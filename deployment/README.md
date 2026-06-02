@@ -38,9 +38,7 @@ This directory is the operational baseline for the Wesko backend:
    `GCP_WORKLOAD_IDENTITY_PROVIDER`
    `GCP_SERVICE_ACCOUNT`
    `DATABASE_URL`
-   `JWT_SECRET`
-   `RAZORPAY_KEY_ID`
-   `RAZORPAY_KEY_SECRET`
+   `AUTH_JWE_KEY`
 
    `build-and-publish` now also uses GitHub Environments:
    `develop` uses `staging`
@@ -50,7 +48,9 @@ This directory is the operational baseline for the Wesko backend:
 
    `DATABASE_URL` should be a PostgreSQL connection URL such as `postgres://user:password@host:5432/dbname?sslmode=require`.
 
-   `JWT_SECRET` must be exactly 32 bytes because the current application uses it as the JWE key.
+   `AUTH_JWE_KEY` must be exactly 32 bytes because the current application uses it as the JWE key.
+
+   The deployed app now reads only `AUTH_JWE_KEY`. The underlying Secret Manager resource name remains `wesko-jwt-secret-<env>` so you do not need to recreate secrets in GCP.
 
 5. Set `GCP_WORKLOAD_IDENTITY_PROVIDER` to the provider name printed by `scripts/bootstrap-gcp.sh`.
 
@@ -59,7 +59,15 @@ This directory is the operational baseline for the Wesko backend:
 
 7. Edit the environment files under `deployment/cloudrun/env/` and replace every `change-me-*` placeholder with real non-secret values.
 
+   Set `CLOUD_SQL_CONNECTION_NAME` to the Cloud SQL instance connection name in the format `PROJECT_ID:REGION:INSTANCE_ID`.
+
+   Set `VPC_CONNECTOR` to your Serverless VPC Access connector name if the service needs Redis or other private VPC resources.
+
 8. If you need optional runtime secrets beyond the core list, create them in Secret Manager and then uncomment or add them in `deployment/cloudrun/secrets/staging.env` and `deployment/cloudrun/secrets/production.env`.
+
+   Razorpay is optional right now and should stay commented out until that integration is actually implemented.
+
+   If you enable Redis AUTH, map the secret to `REDIS_PASS`.
 
    The current codebase also expects working Redis connectivity and may need Google OAuth or Twilio values if you enable those flows.
 
@@ -105,6 +113,13 @@ Grant the Workload Identity principal:
 - `production`: GitHub environment secrets plus `deployment/cloudrun/env/production.env`.
 
 Non-secrets are versioned in git. Secrets are rotated into Secret Manager during deploys and consumed by Cloud Run from Secret Manager, not from plain Cloud Run environment values.
+
+For Cloud SQL on Cloud Run, set `DATABASE_URL` to a socket-aware PostgreSQL URI such as:
+`postgres://wesko_app:DB_PASSWORD@/wesko?host=/cloudsql/eighth-brace-379306:asia-south1:wesko-postgres-prod&sslmode=disable`
+
+`scripts/deploy-cloudrun.sh` reads `CLOUD_SQL_CONNECTION_NAME` and adds the Cloud SQL attachment during `gcloud run deploy`.
+
+For Redis on Memorystore, `scripts/deploy-cloudrun.sh` also reads `VPC_CONNECTOR` and `VPC_EGRESS` and applies them to Cloud Run.
 
 ## Release Strategy
 

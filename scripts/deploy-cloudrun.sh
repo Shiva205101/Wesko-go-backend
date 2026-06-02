@@ -104,6 +104,10 @@ append_secret_file() {
 append_env_file "${common_env_file}"
 append_env_file "${environment_env_file}"
 
+cloud_sql_connection_name="$(awk -F": " '$1=="CLOUD_SQL_CONNECTION_NAME" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
+vpc_connector="$(awk -F": " '$1=="VPC_CONNECTOR" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
+vpc_egress="$(awk -F": " '$1=="VPC_EGRESS" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
+
 secrets_arg=""
 secrets_arg="$(append_secret_file "${common_secret_file}" "${secrets_arg}")"
 secrets_arg="$(append_secret_file "${environment_secret_file}" "${secrets_arg}")"
@@ -141,6 +145,17 @@ fi
 
 if [[ -n "${secrets_arg}" ]]; then
   cmd+=(--set-secrets="${secrets_arg}")
+fi
+
+if [[ -n "${cloud_sql_connection_name}" && "${cloud_sql_connection_name}" != change-me-* ]]; then
+  cmd+=(--add-cloudsql-instances="${cloud_sql_connection_name}")
+fi
+
+if [[ -n "${vpc_connector}" && "${vpc_connector}" != change-me-* ]]; then
+  cmd+=(--vpc-connector="${vpc_connector}")
+  if [[ -n "${vpc_egress}" ]]; then
+    cmd+=(--vpc-egress="${vpc_egress}")
+  fi
 fi
 
 "${cmd[@]}"

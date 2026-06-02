@@ -232,17 +232,13 @@ jobs:
       - name: Rotate runtime secrets in Secret Manager
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-#          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
-#          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+          AUTH_JWE_KEY: ${{ secrets.AUTH_JWE_KEY }}
         shell: bash
         run: |
           set -euo pipefail
           env_name="${{ steps.deploy-vars.outputs.environment }}"
           ./scripts/sync-secret.sh "${env_name}" DATABASE_URL "wesko-database-url-${env_name}"
-          ./scripts/sync-secret.sh "${env_name}" JWT_SECRET "wesko-jwt-secret-${env_name}"
-#          ./scripts/sync-secret.sh "${env_name}" RAZORPAY_KEY_ID "wesko-razorpay-key-id-${env_name}"
-#          ./scripts/sync-secret.sh "${env_name}" RAZORPAY_KEY_SECRET "wesko-razorpay-key-secret-${env_name}"
+          ./scripts/sync-secret.sh "${env_name}" AUTH_JWE_KEY "wesko-jwt-secret-${env_name}"
 
       - name: Deploy to Cloud Run
         env:
