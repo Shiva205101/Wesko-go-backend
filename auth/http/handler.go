@@ -11,6 +11,7 @@ import (
 
 	"vesko/auth"
 	authservice "vesko/auth/service"
+	applogger "vesko/logger"
 	"vesko/requestctx"
 	"vesko/validation"
 
@@ -590,6 +591,7 @@ func (h *Handler) requireAccessToken() gin.HandlerFunc {
 }
 
 func (h *Handler) writeServiceError(c *gin.Context, err error) {
+	l := applogger.FromContext(c.Request.Context())
 	status := stdhttp.StatusInternalServerError
 	switch {
 	case errors.Is(err, auth.ErrInvalidUsername), errors.Is(err, auth.ErrInvalidPassword), errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrInvalidMobile), errors.Is(err, auth.ErrInvalidOTPCode), errors.Is(err, auth.ErrInvalidMobileFormat), errors.Is(err, auth.ErrUserNotFound), errors.Is(err, auth.ErrProfileAlreadyComplete):
@@ -608,23 +610,24 @@ func (h *Handler) writeServiceError(c *gin.Context, err error) {
 		status = stdhttp.StatusBadGateway
 	}
 	if status >= stdhttp.StatusInternalServerError {
-		h.logger.Error("request failed", "request_id", requestIDFromContext(c), "method", c.Request.Method, "path", c.FullPath(), "status", status, "error", err.Error())
+		l.Error("request failed", "method", c.Request.Method, "path", c.FullPath(), "status", status, "error", err.Error())
 		c.JSON(status, errorResponse{Error: "internal server error", RequestId: requestIDFromContext(c)})
 		return
 	}
-	h.logger.Warn("request rejected", "request_id", requestIDFromContext(c), "method", c.Request.Method, "path", c.FullPath(), "status", status, "error", err.Error())
+	l.Warn("request rejected", "method", c.Request.Method, "path", c.FullPath(), "status", status, "error", err.Error())
 	c.JSON(status, errorResponse{RequestId: requestIDFromContext(c), Error: err.Error()})
 	return
 }
 
 func (h *Handler) decodeAndValidateJSON(c *gin.Context, dst any) error {
+	l := applogger.FromContext(c.Request.Context())
 	if err := c.ShouldBindJSON(dst); err != nil {
-		h.logger.Warn("invalid request body", "request_id", requestIDFromContext(c), "path", c.FullPath(), "error", err.Error())
+		l.Warn("invalid request body", "path", c.FullPath(), "error", err.Error())
 		c.JSON(stdhttp.StatusBadRequest, errorResponse{Error: "invalid request body", RequestId: requestIDFromContext(c)})
 		return err
 	}
 	if err := validation.Validate(dst); err != nil {
-		h.logger.Warn("request validation failed", "request_id", requestIDFromContext(c), "path", c.FullPath(), "error", err.Error())
+		l.Warn("request validation failed", "path", c.FullPath(), "error", err.Error())
 		var validationErrs validation.Errors
 		if errors.As(err, &validationErrs) {
 			c.JSON(stdhttp.StatusBadRequest, errorResponse{Error: validation.ErrValidationFailed.Error(), RequestId: requestIDFromContext(c), Details: validationErrs.Messages()})
@@ -642,7 +645,7 @@ func (h *Handler) applyRefreshTokenTransport(c *gin.Context, clientType string, 
 	}
 	csrfToken, err := newCSRFToken()
 	if err != nil {
-		h.logger.Error("csrf token generation failed", "request_id", requestIDFromContext(c), "error", err.Error())
+		applogger.FromContext(c.Request.Context()).Error("csrf token generation failed", "error", err.Error())
 		return
 	}
 	h.setRefreshTokenCookie(c, tokens.RefreshToken, tokens.RefreshTokenExpiresIn)
@@ -770,6 +773,7 @@ func (h *Handler) enforceOTPVerifyLimit(c *gin.Context, mobile string) error {
 }
 
 func (h *Handler) enforceRateLimit(c *gin.Context, action string, mobile string, ipRule auth.RateLimitRule, mobileRule auth.RateLimitRule) error {
+	l := applogger.FromContext(c.Request.Context())
 	if h.limiter == nil {
 		return nil
 	}
@@ -780,8 +784,7 @@ func (h *Handler) enforceRateLimit(c *gin.Context, action string, mobile string,
 		return err
 	}
 	if !allowed {
-		h.logger.Warn("otp rate limit exceeded",
-			"request_id", requestIDFromContext(c),
+		l.Warn("otp rate limit exceeded",
 			"type", "auth_audit",
 			"action", action,
 			"scope", "ip",
@@ -801,8 +804,7 @@ func (h *Handler) enforceRateLimit(c *gin.Context, action string, mobile string,
 		return err
 	}
 	if !allowed {
-		h.logger.Warn("otp rate limit exceeded",
-			"request_id", requestIDFromContext(c),
+		l.Warn("otp rate limit exceeded",
 			"type", "auth_audit",
 			"action", action,
 			"scope", "mobile",
@@ -814,9 +816,9 @@ func (h *Handler) enforceRateLimit(c *gin.Context, action string, mobile string,
 }
 
 func (h *Handler) auditEvent(c *gin.Context, level slog.Level, action string, outcome string, args ...any) {
+	l := applogger.FromContext(c.Request.Context())
 	fields := []any{
 		"type", "auth_audit",
-		"request_id", requestIDFromContext(c),
 		"action", action,
 		"outcome", outcome,
 		"client_ip", c.ClientIP(),
@@ -824,9 +826,7 @@ func (h *Handler) auditEvent(c *gin.Context, level slog.Level, action string, ou
 	}
 	fields = append(fields, args...)
 
-	record := slog.NewRecord(time.Now(), level, "auth event", 0)
-	record.Add(fields...)
-	_ = h.logger.Handler().Handle(c.Request.Context(), record)
+	l.Log(c.Request.Context(), level, "auth event", fields...)
 }
 
 func maskMobile(mobile string) string {

@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"vesko/internal/observability"
+	applogger "vesko/logger"
 	"vesko/pkg/buildinfo"
 	"vesko/requestctx"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type RouteRegistrar interface {
@@ -42,11 +44,11 @@ type HTTPServer struct {
 }
 
 func New(cfg Config, routeRegistrar RouteRegistrar) *HTTPServer {
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
+	loggerInternal := cfg.Logger
+	if loggerInternal == nil {
+		loggerInternal = slog.Default()
 	}
-	serverLogger := logger.With("component", "http_server")
+	serverLogger := loggerInternal.With("component", "http_server")
 	baseContext := cfg.BaseContext
 	if baseContext == nil {
 		baseContext = context.Background()
@@ -54,13 +56,14 @@ func New(cfg Config, routeRegistrar RouteRegistrar) *HTTPServer {
 
 	router := gin.New()
 	router.Use(
-		requestContextMiddleware(),
+		requestContextMiddleware(serverLogger),
 		observability.HTTPMiddleware(cfg.ServiceName),
+		traceIDMiddleware(),
 		corsMiddleware(cfg.AllowedOrigins),
-		accessLogMiddleware(serverLogger),
+		accessLogMiddleware(),
 		gin.CustomRecovery(func(c *gin.Context, recovered any) {
-			serverLogger.Error("panic recovered",
-				"request_id", requestctx.RequestID(c.Request.Context()),
+			l := applogger.FromContext(c.Request.Context())
+			l.Error("panic recovered",
 				"method", c.Request.Method,
 				"path", c.FullPath(),
 				"error", fmt.Sprint(recovered),
@@ -164,7 +167,24 @@ func (s *HTTPServer) Shutdown(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
-func requestContextMiddleware() gin.HandlerFunc {
+func traceIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		l := applogger.FromContext(ctx)
+
+		// Extract trace ID from OTel span
+		if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+			traceID := span.SpanContext().TraceID().String()
+			// Re-bind logger with trace_id
+			l = l.With("trace_id", traceID)
+			c.Request = c.Request.WithContext(applogger.ToContext(ctx, l))
+		}
+
+		c.Next()
+	}
+}
+
+func requestContextMiddleware(l *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now().UTC()
 		requestID := strings.TrimSpace(c.GetHeader("X-Request-ID"))
@@ -172,12 +192,20 @@ func requestContextMiddleware() gin.HandlerFunc {
 			requestID = newRequestID()
 		}
 
-		c.Request = c.Request.WithContext(requestctx.WithMetadata(c.Request.Context(), requestctx.Metadata{
+		ctx := requestctx.WithMetadata(c.Request.Context(), requestctx.Metadata{
 			RequestID:    requestID,
 			RequestStart: start,
 			TraceParent:  strings.TrimSpace(c.GetHeader("traceparent")),
 			TraceState:   strings.TrimSpace(c.GetHeader("tracestate")),
-		}))
+		})
+
+		// Bind IDs to logger so they appear even without InfoContext
+		lWithID := l.With("request_id", requestID)
+
+		// Inject logger into context
+		ctx = applogger.ToContext(ctx, lWithID)
+
+		c.Request = c.Request.WithContext(ctx)
 		c.Request.Header.Set("X-Request-ID", requestID)
 		c.Writer.Header().Set("X-Request-ID", requestID)
 		c.Next()
@@ -193,80 +221,37 @@ func newRequestID() string {
 	return hex.EncodeToString(data)
 }
 
-func accessLogMiddleware(logger *slog.Logger) gin.HandlerFunc {
+func accessLogMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := requestctx.RequestStart(c.Request.Context())
 		if start.IsZero() {
 			start = time.Now().UTC()
 		}
 
-		requestPath := c.Request.URL.Path
-		routePath := c.FullPath()
-		if routePath == "" {
-			routePath = requestPath
-		}
-
-		logger.Info("http request started",
-			"type", "http_access",
-			"phase", "start",
-			"request_id", requestctx.RequestID(c.Request.Context()),
-			"method", c.Request.Method,
-			"path", requestPath,
-			"route", routePath,
-			"client_ip", c.ClientIP(),
-			"bytes_in", c.Request.ContentLength,
-		)
+		l := applogger.FromContext(c.Request.Context())
 
 		c.Next()
 
-		path := c.Request.URL.Path
-		route := c.FullPath()
-		if route == "" {
-			route = path
-		}
-
 		status := c.Writer.Status()
-		logFn := logger.Info
-		logClientDetails := false
-		if len(c.Errors) > 0 || status >= http.StatusInternalServerError {
-			logFn = logger.Error
-			logClientDetails = true
-		} else if status >= http.StatusBadRequest {
-			logFn = logger.Warn
-			logClientDetails = true
+		latency := time.Since(start)
+
+		fields := []any{
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", status,
+			"latency_ms", float64(latency.Microseconds()) / 1000.0,
+			"created_at", start.Format(time.RFC3339),
 		}
 
-		logFn("http request completed",
-			"type", "http_access",
-			"phase", "finish",
-			"request_id", requestctx.RequestID(c.Request.Context()),
-			"method", c.Request.Method,
-			"path", path,
-			"route", route,
-			"status", status,
-			"latency_ms", float64(time.Since(start).Microseconds())/1000.0,
-			"client_ip", c.ClientIP(),
-			"bytes_in", c.Request.ContentLength,
-			"bytes_out", c.Writer.Size(),
-			"errors", c.Errors.String(),
-		)
-
-		if logClientDetails {
-			browser, platform, deviceType := summarizeUserAgent(c.Request.UserAgent())
-			logFn("http request client details",
-				"type", "http_access",
-				"phase", "client",
-				"request_id", requestctx.RequestID(c.Request.Context()),
-				"method", c.Request.Method,
-				"path", path,
-				"route", route,
-				"status", status,
-				"client_ip", c.ClientIP(),
-				"browser", browser,
-				"platform", platform,
-				"device_type", deviceType,
-				"user_agent", c.Request.UserAgent(),
-			)
+		if len(c.Errors) > 0 {
+			fields = append(fields, "errors", c.Errors.String())
+			l.Error("http request failed", fields...)
+		} else if status >= http.StatusInternalServerError {
+			l.Error("http request error", fields...)
+		} else if status >= http.StatusBadRequest {
+			l.Warn("http request warning", fields...)
+		} else {
+			l.Info("http request completed", fields...)
 		}
 	}
 }

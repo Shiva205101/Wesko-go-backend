@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"vesko/auth"
-	"vesko/requestctx"
+	applogger "vesko/logger"
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
@@ -404,7 +404,9 @@ func (s *Service) GetGoogleAuthURL() string {
 }
 
 func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth.TokenPair, error) {
-	requestID := requestctx.RequestID(ctx)
+	l := applogger.FromContext(ctx).With("method", "GoogleLogin")
+	l.Info("starting google login flow")
+
 	conf := &oauth2.Config{
 		ClientID:     s.googleConfig.ClientID,
 		ClientSecret: s.googleConfig.ClientSecret,
@@ -413,87 +415,81 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"},
 	}
 
+	l.Info("exchanging auth code for token")
 	tok, err := conf.Exchange(ctx, code)
 	if err != nil {
+		l.Error("failed to exchange auth code", "error", err)
 		return auth.User{}, auth.TokenPair{}, err
 	}
 
+	l.Info("fetching user info from google")
 	oauth2Service, err := googleoauth.NewService(ctx, option.WithTokenSource(conf.TokenSource(ctx, tok)))
 	if err != nil {
+		l.Error("failed to create oauth2 service", "error", err)
 		return auth.User{}, auth.TokenPair{}, err
 	}
 
 	userInfo, err := oauth2Service.Userinfo.Get().Do()
 	if err != nil {
+		l.Error("failed to get user info", "error", err)
 		return auth.User{}, auth.TokenPair{}, err
 	}
 
-	fmt.Println(userInfo)
-
-	s.logger.Info("google login identity resolved",
-		"request_id", requestID,
-		"provider", "google",
+	l.Info("google identity resolved",
 		"provider_id", userInfo.Id,
 		"email", userInfo.Email,
 	)
 
-	fmt.Println("userId", userInfo.Id)
-
 	// 1. Check if SSO account exists
+	l.Info("checking for existing sso account")
 	user, exists, err := s.repo.GetSSOAccount(ctx, "google", userInfo.Id)
 	if err != nil {
+		l.Error("failed to check sso account", "error", err)
 		return auth.User{}, auth.TokenPair{}, err
 	}
 
 	if exists {
+		l.Info("existing sso account found, issuing tokens", "user_id", user.ID)
 		tokens, err := s.IssueTokenPair(ctx, user)
-		s.logger.Info("google login resolved",
-			"request_id", requestID,
-			"branch", "existing_sso_account",
-			"user_id", user.ID,
-			"username", user.Username,
-			"is_profile_complete", user.IsProfileComplete,
-		)
+		if err != nil {
+			l.Error("failed to issue tokens", "error", err)
+		}
 		return user, tokens, err
 	}
 
 	// 2. Check if user with same email exists (Option A: Auto-link)
+	l.Info("searching for user by email for auto-linking", "email", userInfo.Email)
 	user, err = s.repo.GetUserByEmail(ctx, userInfo.Email)
 	if err == nil {
-		// Link existing user to this SSO account
+		l.Info("user with email found, linking sso account", "user_id", user.ID)
 		err = s.repo.LinkSSOAccount(ctx, user.ID, auth.SSOAccount{
 			Provider:   "google",
 			ProviderID: userInfo.Id,
 			Email:      userInfo.Email,
 		})
 		if err != nil {
+			l.Error("failed to link sso account", "error", err)
 			return auth.User{}, auth.TokenPair{}, err
 		}
 
+		l.Info("sso account linked successfully, issuing tokens")
 		tokens, err := s.IssueTokenPair(ctx, user)
-		s.logger.Info("google login resolved",
-			"request_id", requestID,
-			"branch", "auto_link_existing_email",
-			"user_id", user.ID,
-			"username", user.Username,
-			"is_profile_complete", user.IsProfileComplete,
-		)
 		return user, tokens, err
 	}
 
 	if !errors.Is(err, auth.ErrUserNotFound) {
+		l.Error("failed to fetch user by email", "error", err)
 		return auth.User{}, auth.TokenPair{}, err
 	}
 
 	// 3. New User: Create with IsProfileComplete = false
-	// Generate a unique username from email
+	l.Info("no existing user found, creating new sso user")
 	var username string
 	usernameArray := strings.Split(userInfo.Email, "@")
 	if len(usernameArray) > 1 {
 		username = usernameArray[0]
 	}
 
-	// Check if username is taken, if so, append random suffix
 	if _, err := s.repo.GetUserDetailsByUsername(ctx, username); err == nil {
 		username = fmt.Sprintf("%s_%d", username, time.Now().Unix()%1000)
 	}
@@ -509,17 +505,12 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 		Email:      userInfo.Email,
 	})
 	if err != nil {
+		l.Error("failed to create sso user", "error", err)
 		return auth.User{}, auth.TokenPair{}, err
 	}
 
+	l.Info("new sso user created successfully", "user_id", user.ID, "username", username)
 	tokens, err := s.IssueTokenPair(ctx, user)
-	s.logger.Info("google login resolved",
-		"request_id", requestID,
-		"branch", "new_sso_user_created",
-		"user_id", user.ID,
-		"username", user.Username,
-		"is_profile_complete", user.IsProfileComplete,
-	)
 	return user, tokens, err
 }
 

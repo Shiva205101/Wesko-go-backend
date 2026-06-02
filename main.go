@@ -40,7 +40,7 @@ func main() {
 	if isReleaseEnvironment(env) {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	observability.Configure()
+	observability.Configure("wesko-api")
 
 	envConfigs := configs.Load()
 	if err := envConfigs.Validate(); err != nil {
