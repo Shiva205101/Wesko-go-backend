@@ -168,8 +168,8 @@ jobs:
             COMMIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ steps.meta-vars.outputs.build_date }}
 
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.0
+#      - name: Install Cosign
+#        uses: sigstore/cosign-installer@v4.1.0
 
 #      - name: Sign image
 #        env:
@@ -234,16 +234,16 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
-          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+#          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+#          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
         shell: bash
         run: |
           set -euo pipefail
           env_name="${{ steps.deploy-vars.outputs.environment }}"
           ./scripts/sync-secret.sh "${env_name}" DATABASE_URL "wesko-database-url-${env_name}"
           ./scripts/sync-secret.sh "${env_name}" JWT_SECRET "wesko-jwt-secret-${env_name}"
-          ./scripts/sync-secret.sh "${env_name}" RAZORPAY_KEY_ID "wesko-razorpay-key-id-${env_name}"
-          ./scripts/sync-secret.sh "${env_name}" RAZORPAY_KEY_SECRET "wesko-razorpay-key-secret-${env_name}"
+#          ./scripts/sync-secret.sh "${env_name}" RAZORPAY_KEY_ID "wesko-razorpay-key-id-${env_name}"
+#          ./scripts/sync-secret.sh "${env_name}" RAZORPAY_KEY_SECRET "wesko-razorpay-key-secret-${env_name}"
 
       - name: Deploy to Cloud Run
         env:
