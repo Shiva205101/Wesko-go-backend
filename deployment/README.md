@@ -61,7 +61,8 @@ This directory is the operational baseline for the Wesko backend:
 
    Set `CLOUD_SQL_CONNECTION_NAME` to the Cloud SQL instance connection name in the format `PROJECT_ID:REGION:INSTANCE_ID`.
 
-   Set `VPC_CONNECTOR` to your Serverless VPC Access connector name if the service needs Redis or other private VPC resources.
+   Prefer Direct VPC egress (recommended by Google) by setting `VPC_NETWORK` and `VPC_SUBNET` for Redis or other private VPC resources.
+   Use `VPC_CONNECTOR` only if you intentionally want a Serverless VPC Access connector.
 
 8. If you need optional runtime secrets beyond the core list, create them in Secret Manager and then uncomment or add them in `deployment/cloudrun/secrets/staging.env` and `deployment/cloudrun/secrets/production.env`.
 
@@ -120,6 +121,8 @@ For Cloud SQL on Cloud Run, set `DATABASE_URL` to a socket-aware PostgreSQL URI 
 `scripts/deploy-cloudrun.sh` reads `CLOUD_SQL_CONNECTION_NAME` and adds the Cloud SQL attachment during `gcloud run deploy`.
 
 For Redis on Memorystore, `scripts/deploy-cloudrun.sh` also reads `VPC_CONNECTOR` and `VPC_EGRESS` and applies them to Cloud Run.
+
+Direct VPC egress uses `VPC_NETWORK` and `VPC_SUBNET` and does not require a connector. Your subnet must be `/26` or larger.
 
 ## Release Strategy
 

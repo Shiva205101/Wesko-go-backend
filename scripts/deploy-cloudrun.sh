@@ -107,6 +107,8 @@ append_env_file "${environment_env_file}"
 cloud_sql_connection_name="$(awk -F": " '$1=="CLOUD_SQL_CONNECTION_NAME" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 vpc_connector="$(awk -F": " '$1=="VPC_CONNECTOR" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 vpc_egress="$(awk -F": " '$1=="VPC_EGRESS" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
+vpc_network="$(awk -F": " '$1=="VPC_NETWORK" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
+vpc_subnet="$(awk -F": " '$1=="VPC_SUBNET" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 
 secrets_arg=""
 secrets_arg="$(append_secret_file "${common_secret_file}" "${secrets_arg}")"
@@ -152,10 +154,20 @@ if [[ -n "${cloud_sql_connection_name}" && "${cloud_sql_connection_name}" != cha
 fi
 
 if [[ -n "${vpc_connector}" && "${vpc_connector}" != change-me-* ]]; then
+  cmd+=(--clear-network)
   cmd+=(--vpc-connector="${vpc_connector}")
   if [[ -n "${vpc_egress}" ]]; then
     cmd+=(--vpc-egress="${vpc_egress}")
   fi
+elif [[ ( -n "${vpc_network}" && "${vpc_network}" != change-me-* ) || ( -n "${vpc_subnet}" && "${vpc_subnet}" != change-me-* ) ]]; then
+  cmd+=(--clear-vpc-connector)
+  if [[ -n "${vpc_network}" && "${vpc_network}" != change-me-* ]]; then
+    cmd+=(--network="${vpc_network}")
+  fi
+  if [[ -n "${vpc_subnet}" && "${vpc_subnet}" != change-me-* ]]; then
+    cmd+=(--subnet="${vpc_subnet}")
+  fi
+  cmd+=(--vpc-egress="${vpc_egress:-private-ranges-only}")
 fi
 
 "${cmd[@]}"
