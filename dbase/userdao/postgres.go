@@ -17,7 +17,7 @@ type UserModel struct {
 	Mobile            *string `gorm:"size:20;uniqueIndex"`
 	MobileVerified    bool    `gorm:"not null;default:false"`
 	Role              string  `gorm:"size:20;not null;default:'customer'"`
-	IsProfileComplete bool    `gorm:"not null;default:true"`
+	IsProfileComplete *bool   `gorm:"not null;default:false"`
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	DeletedAt         gorm.DeletedAt `gorm:"index"`
@@ -120,7 +120,7 @@ func (r *PostgresRepository) RegisterUser(ctx context.Context, user auth.User, p
 			Mobile:            mobile,
 			MobileVerified:    user.MobileVerified,
 			Role:              string(user.Role),
-			IsProfileComplete: user.IsProfileComplete,
+			IsProfileComplete: &user.IsProfileComplete,
 		}
 
 		if err := tx.Create(&model).Error; err != nil {
@@ -177,7 +177,7 @@ func (r *PostgresRepository) UpdateUser(ctx context.Context, user auth.User) err
 		Mobile:            mobile,
 		MobileVerified:    user.MobileVerified,
 		Role:              string(user.Role),
-		IsProfileComplete: user.IsProfileComplete,
+		IsProfileComplete: &user.IsProfileComplete,
 	}
 
 	return r.db.WithContext(ctx).Model(&model).Updates(map[string]any{
@@ -235,7 +235,7 @@ func (r *PostgresRepository) CreateSSOUser(ctx context.Context, user auth.User, 
 			Mobile:            mobile,
 			MobileVerified:    user.MobileVerified,
 			Role:              string(user.Role),
-			IsProfileComplete: user.IsProfileComplete,
+			IsProfileComplete: &user.IsProfileComplete,
 		}
 
 		if err := tx.Create(&userModel).Error; err != nil {
@@ -278,6 +278,11 @@ func toDomainUser(model UserModel) auth.User {
 		mobile = *model.Mobile
 	}
 
+	complete := false
+	if model.IsProfileComplete != nil {
+		complete = *model.IsProfileComplete
+	}
+
 	return auth.User{
 		ID:                model.ID,
 		Username:          model.Username,
@@ -285,7 +290,7 @@ func toDomainUser(model UserModel) auth.User {
 		Mobile:            mobile,
 		MobileVerified:    model.MobileVerified,
 		Role:              auth.Role(model.Role),
-		IsProfileComplete: model.IsProfileComplete,
+		IsProfileComplete: complete,
 		CreatedAt:         model.CreatedAt,
 		UpdatedAt:         model.UpdatedAt,
 	}

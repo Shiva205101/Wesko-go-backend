@@ -449,7 +449,10 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 	}
 
 	if exists {
-		l.Info("existing sso account found, issuing tokens", "user_id", user.ID)
+		l.Info("existing sso account found, issuing tokens",
+			"user_id", user.ID,
+			"is_profile_complete", user.IsProfileComplete,
+		)
 		tokens, err := s.IssueTokenPair(ctx, user)
 		if err != nil {
 			l.Error("failed to issue tokens", "error", err)
@@ -472,7 +475,9 @@ func (s *Service) GoogleLogin(ctx context.Context, code string) (auth.User, auth
 			return auth.User{}, auth.TokenPair{}, err
 		}
 
-		l.Info("sso account linked successfully, issuing tokens")
+		l.Info("sso account linked successfully, issuing tokens",
+			"is_profile_complete", user.IsProfileComplete,
+		)
 		tokens, err := s.IssueTokenPair(ctx, user)
 		return user, tokens, err
 	}
