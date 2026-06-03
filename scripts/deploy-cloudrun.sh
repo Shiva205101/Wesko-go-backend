@@ -110,6 +110,34 @@ vpc_egress="$(awk -F": " '$1=="VPC_EGRESS" {gsub(/^'\''|'\''$/, "", $2); print $
 vpc_network="$(awk -F": " '$1=="VPC_NETWORK" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 vpc_subnet="$(awk -F": " '$1=="VPC_SUBNET" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 
+normalize_vpc_egress() {
+  local raw="${1:-}"
+  raw="$(trim "${raw}")"
+  if [[ -z "${raw}" ]]; then
+    echo ""
+    return 0
+  fi
+
+  case "${raw}" in
+    private-ranges-only|all|all-traffic)
+      echo "${raw}"
+      return 0
+      ;;
+  esac
+
+  if [[ "${raw}" == */* ]]; then
+    echo "Invalid VPC_EGRESS value: ${raw}" >&2
+    echo "VPC_EGRESS must be one of: private-ranges-only, all-traffic (or all)." >&2
+    echo "Do not set VPC_EGRESS to a CIDR. If you meant a subnet range, set VPC_SUBNET to the subnet NAME (e.g. asia-south1-default)." >&2
+    exit 2
+  fi
+
+  echo "Invalid VPC_EGRESS value: ${raw}. Use private-ranges-only or all-traffic." >&2
+  exit 2
+}
+
+vpc_egress="$(normalize_vpc_egress "${vpc_egress}")"
+
 secrets_arg=""
 secrets_arg="$(append_secret_file "${common_secret_file}" "${secrets_arg}")"
 secrets_arg="$(append_secret_file "${environment_secret_file}" "${secrets_arg}")"
