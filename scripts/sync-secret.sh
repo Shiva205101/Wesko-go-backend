@@ -12,10 +12,25 @@ if [[ -z "${!env_var_name:-}" ]]; then
   exit 0
 fi
 
-if ! gcloud secrets describe "${secret_name}" --project="${project_id}" >/dev/null 2>&1; then
-  echo "Secret ${secret_name} does not exist in project ${project_id}. Run scripts/bootstrap-gcp.sh first (or check GCP_PROJECT_ID)." >&2
+tmp_err="$(mktemp)"
+trap 'rm -f "${tmp_err}"' EXIT
+
+if printf '%s' "${!env_var_name}" | gcloud secrets versions add "${secret_name}" --project="${project_id}" --data-file=- 2>"${tmp_err}"; then
+  echo "Added a new version for ${secret_name} (${environment})."
+  exit 0
+fi
+
+err="$(cat "${tmp_err}")"
+if echo "${err}" | rg -q "NOT_FOUND|not found"; then
+  echo "Secret ${secret_name} was not found in project ${project_id}. Create it (or run scripts/bootstrap-gcp.sh) and retry." >&2
+  exit 1
+fi
+if echo "${err}" | rg -q "PERMISSION_DENIED|Permission denied|permissionDenied"; then
+  echo "Permission denied adding a secret version for ${secret_name} in project ${project_id}." >&2
+  echo "Grant the GitHub deployer service account roles/secretmanager.secretVersionAdder on this secret and retry." >&2
   exit 1
 fi
 
-printf '%s' "${!env_var_name}" | gcloud secrets versions add "${secret_name}" --project="${project_id}" --data-file=-
-echo "Added a new version for ${secret_name} (${environment})."
+echo "Failed to add secret version for ${secret_name} in project ${project_id}:" >&2
+echo "${err}" >&2
+exit 1
