@@ -128,7 +128,7 @@ normalize_vpc_egress() {
   if [[ "${raw}" == */* ]]; then
     echo "Invalid VPC_EGRESS value: ${raw}" >&2
     echo "VPC_EGRESS must be one of: private-ranges-only, all-traffic (or all)." >&2
-    echo "Do not set VPC_EGRESS to a CIDR. If you meant a subnet range, set VPC_SUBNET to the subnet NAME (e.g. asia-south1-default)." >&2
+    echo "Do not set VPC_EGRESS to a CIDR. If you meant a subnet range, set VPC_SUBNET to the subnet NAME (e.g. default)." >&2
     exit 2
   fi
 
