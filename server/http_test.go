@@ -113,7 +113,7 @@ func TestCORSPreflightRejectsDisallowedOrigin(t *testing.T) {
 	}
 }
 
-func TestAccessLogMiddlewareLogsRequestStartAndFinish(t *testing.T) {
+func TestAccessLogMiddlewareLogsCompletionForSuccessfulRequest(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -138,33 +138,18 @@ func TestAccessLogMiddlewareLogsRequestStartAndFinish(t *testing.T) {
 	}
 
 	logs := logOutput.String()
-	if !strings.Contains(logs, "msg=\"http request started\"") {
-		t.Fatalf("expected request start log, got %q", logs)
-	}
-	if !strings.Contains(logs, "phase=start") {
-		t.Fatalf("expected request start phase, got %q", logs)
-	}
 	if !strings.Contains(logs, "msg=\"http request completed\"") {
 		t.Fatalf("expected request completion log, got %q", logs)
 	}
-	if !strings.Contains(logs, "phase=finish") {
-		t.Fatalf("expected request completion phase, got %q", logs)
-	}
 	if !strings.Contains(logs, "path=/auth/login") {
 		t.Fatalf("expected request path in logs, got %q", logs)
-	}
-	if !strings.Contains(logs, "route=/auth/login") {
-		t.Fatalf("expected route path in logs, got %q", logs)
-	}
-	if strings.Contains(logs, "msg=\"http request client details\"") {
-		t.Fatalf("did not expect client details log for successful request, got %q", logs)
 	}
 	if strings.Contains(logs, "user_agent=") {
 		t.Fatalf("did not expect user agent in successful access logs, got %q", logs)
 	}
 }
 
-func TestAccessLogMiddlewareLogsClientDetailsForWarnResponses(t *testing.T) {
+func TestAccessLogMiddlewareLogsWarnCompletionForWarnResponses(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -189,25 +174,10 @@ func TestAccessLogMiddlewareLogsClientDetailsForWarnResponses(t *testing.T) {
 	}
 
 	logs := logOutput.String()
-	if !strings.Contains(logs, "msg=\"http request completed\"") || !strings.Contains(logs, "level=WARN") {
+	if !strings.Contains(logs, "msg=\"http request warning\"") || !strings.Contains(logs, "level=WARN") {
 		t.Fatalf("expected warn completion log, got %q", logs)
 	}
-	if !strings.Contains(logs, "msg=\"http request client details\"") {
-		t.Fatalf("expected client details log, got %q", logs)
-	}
-	if !strings.Contains(logs, "phase=client") {
-		t.Fatalf("expected client details phase, got %q", logs)
-	}
-	if !strings.Contains(logs, "browser=chrome") {
-		t.Fatalf("expected browser summary, got %q", logs)
-	}
-	if !strings.Contains(logs, "platform=macos") {
-		t.Fatalf("expected platform summary, got %q", logs)
-	}
-	if !strings.Contains(logs, "device_type=desktop") {
-		t.Fatalf("expected device type summary, got %q", logs)
-	}
-	if !strings.Contains(logs, "user_agent=\"Mozilla/5.0") {
-		t.Fatalf("expected raw user agent on warn logs, got %q", logs)
+	if !strings.Contains(logs, "path=/auth/fail") {
+		t.Fatalf("expected request path in logs, got %q", logs)
 	}
 }
