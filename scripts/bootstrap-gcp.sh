@@ -105,6 +105,10 @@ for secret_name in \
   wesko-database-url-production \
   wesko-jwt-secret-staging \
   wesko-jwt-secret-production \
+  wesko-google-client-id-staging \
+  wesko-google-client-id-production \
+  wesko-google-client-secret-staging \
+  wesko-google-client-secret-production \
   wesko-razorpay-key-id-staging \
   wesko-razorpay-key-id-production \
   wesko-razorpay-key-secret-staging \
