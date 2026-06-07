@@ -128,6 +128,7 @@ Every auth flow requires `client_type`.
 
 ### Redis
 
+- `REDIS_ENABLED`
 - `REDIS_HOST`
 - `REDIS_PORT`
 - `REDIS_USER`
@@ -138,6 +139,8 @@ Every auth flow requires `client_type`.
 - `REDIS_READ_TIMEOUT_SECONDS`
 - `REDIS_WRITE_TIMEOUT_SECONDS`
 - `REDIS_POOL_TIMEOUT_MILLISECONDS`
+
+Set `REDIS_ENABLED=false` to run without Redis. In that mode the app uses Postgres directly for user lookups and process-local memory for refresh sessions, pending signup state, login OTP state, and OTP rate limits. This is intended for initial development only: deploys, restarts, cold replacements, scale-to-zero, or multiple Cloud Run instances clear or split that in-memory auth state. Set `REDIS_ENABLED=true` to use Redis-backed cache and auth state.
 
 ### HTTP
 
@@ -207,7 +210,7 @@ In `dev`, the app loads:
 
 To run locally:
 
-1. Start PostgreSQL and Redis.
+1. Start PostgreSQL. Start Redis only if `REDIS_ENABLED=true`.
 2. Set the required env vars for auth, Twilio, and Google OAuth.
 3. Run:
 

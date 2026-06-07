@@ -24,6 +24,7 @@ const (
 	DBDebug                          = "DB_DEBUG"
 	DBSSLMode                        = "DB_SSL_MODE"
 	RedisHost                        = "REDIS_HOST"
+	RedisEnabled                     = "REDIS_ENABLED"
 	RedisPort                        = "REDIS_PORT"
 	RedisUser                        = "REDIS_USER"
 	RedisPass                        = "REDIS_PASS"
@@ -221,6 +222,7 @@ func Load() *Configs {
 	return &Configs{
 		DBConfig: loadDBConfig(),
 		RedisConfig: vredis.Config{
+			Enabled:      getEnvBool(RedisEnabled, false),
 			Addr:         net.JoinHostPort(getEnvString(RedisHost, "localhost"), getEnvString(RedisPort, "6379")),
 			Username:     getEnvString(RedisUser, ""),
 			Password:     getEnvString(RedisPass, ""),
@@ -329,26 +331,31 @@ func (c *Configs) Validate() error {
 		return fmt.Errorf("%s must be 0 or greater", AuthOTPVerifyLimitWindowSeconds)
 	case c.Auth.OTPVerifyLimitMobile < 0:
 		return fmt.Errorf("%s must be 0 or greater", AuthOTPVerifyLimitMobile)
-	case c.RedisConfig.Addr == "":
-		return errors.New("redis address is required")
-	case c.RedisConfig.CacheTTL <= 0:
-		return fmt.Errorf("%s must be greater than 0", RedisCacheTTL)
-	case c.RedisConfig.DialTimeout <= 0:
-		return fmt.Errorf("%s must be greater than 0", RedisDialTimeout)
-	case c.RedisConfig.ReadTimeout <= 0:
-		return fmt.Errorf("%s must be greater than 0", RedisReadTimeout)
-	case c.RedisConfig.WriteTimeout <= 0:
-		return fmt.Errorf("%s must be greater than 0", RedisWriteTimeout)
-	case c.RedisConfig.PoolTimeout <= 0:
-		return fmt.Errorf("%s must be greater than 0", RedisPoolTimeout)
 	}
 
 	if _, err := strconv.Atoi(c.HTTP.Port); err != nil {
 		return fmt.Errorf("%s must be a valid port", HTTPPort)
 	}
 
-	if host, port, err := net.SplitHostPort(c.RedisConfig.Addr); err != nil || host == "" || port == "" {
-		return errors.New("redis address must include host and port")
+	if c.RedisConfig.Enabled {
+		switch {
+		case c.RedisConfig.Addr == "":
+			return errors.New("redis address is required")
+		case c.RedisConfig.CacheTTL <= 0:
+			return fmt.Errorf("%s must be greater than 0", RedisCacheTTL)
+		case c.RedisConfig.DialTimeout <= 0:
+			return fmt.Errorf("%s must be greater than 0", RedisDialTimeout)
+		case c.RedisConfig.ReadTimeout <= 0:
+			return fmt.Errorf("%s must be greater than 0", RedisReadTimeout)
+		case c.RedisConfig.WriteTimeout <= 0:
+			return fmt.Errorf("%s must be greater than 0", RedisWriteTimeout)
+		case c.RedisConfig.PoolTimeout <= 0:
+			return fmt.Errorf("%s must be greater than 0", RedisPoolTimeout)
+		}
+
+		if host, port, err := net.SplitHostPort(c.RedisConfig.Addr); err != nil || host == "" || port == "" {
+			return errors.New("redis address must include host and port")
+		}
 	}
 
 	switch c.Auth.CookieSameSite {

@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	Enabled      bool
 	Addr         string
 	Username     string
 	Password     string

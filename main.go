@@ -14,6 +14,7 @@ import (
 	authhttp "vesko/auth/http"
 	twilioprovider "vesko/auth/provider/twilio"
 	authservice "vesko/auth/service"
+	memorycache "vesko/cache/memory"
 	rediscache "vesko/cache/redis"
 	"vesko/configs"
 	"vesko/dbase/userdao"
@@ -52,6 +53,7 @@ func main() {
 		"http_port", envConfigs.HTTP.Port,
 		"db_host", envConfigs.DBConfig.Host,
 		"db_name", envConfigs.DBConfig.DBName,
+		"redis_enabled", envConfigs.RedisConfig.Enabled,
 		"redis_addr", envConfigs.RedisConfig.Addr,
 		"redis_db", envConfigs.RedisConfig.DB,
 		"access_token_ttl_seconds", int64(envConfigs.Auth.AccessTokenTTL.Seconds()),
@@ -74,11 +76,6 @@ func main() {
 		fatal(appLogger, "database migration failed", err)
 	}
 
-	redisClient := envConfigs.RedisConfig.NewClient()
-
-	if err := rediscache.Ping(ctx, redisClient); err != nil {
-		fatal(appLogger, "redis connection failed", err)
-	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		fatal(appLogger, "database sql handle failed", err)
@@ -94,10 +91,35 @@ func main() {
 		fatal(appLogger, "token manager initialization failed", err)
 	}
 
-	cachedRepo := auth.NewCachedUserRepository(
-		pgRepo,
-		rediscache.NewUserCache(redisClient, envConfigs.RedisConfig.CacheTTL),
-	)
+	userRepo := auth.UserRepository(pgRepo)
+	refreshStore := auth.RefreshTokenStore(memorycache.NewRefreshStore())
+	pendingSignupStore := auth.PendingSignupStore(memorycache.NewPendingSignupStore())
+	otpStateStore := auth.OTPRequestStateStore(memorycache.NewOTPStateStore())
+	rateLimiter := auth.RateLimiter(memorycache.NewRateLimiter())
+	var redisReadinessCheck func(context.Context) error
+
+	if envConfigs.RedisConfig.Enabled {
+		redisClient := envConfigs.RedisConfig.NewClient()
+		if err := rediscache.Ping(ctx, redisClient); err != nil {
+			fatal(appLogger, "redis connection failed", err)
+		}
+
+		userRepo = auth.NewCachedUserRepository(
+			pgRepo,
+			rediscache.NewUserCache(redisClient, envConfigs.RedisConfig.CacheTTL),
+		)
+		refreshStore = rediscache.NewRefreshStore(redisClient)
+		pendingSignupStore = rediscache.NewPendingSignupStore(redisClient)
+		otpStateStore = rediscache.NewOTPStateStore(redisClient)
+		rateLimiter = rediscache.NewRateLimiter(redisClient)
+		redisReadinessCheck = func(ctx context.Context) error {
+			return rediscache.Ping(ctx, redisClient)
+		}
+		appLogger.Info("redis enabled; using redis-backed auth cache and state")
+	} else {
+		appLogger.Info("redis disabled; using in-memory auth state and postgres user repository")
+	}
+
 	otpProvider := twilioprovider.NewVerifyProvider(
 		envConfigs.Auth.TwilioAccountSID,
 		envConfigs.Auth.TwilioAuthToken,
@@ -106,12 +128,12 @@ func main() {
 	)
 
 	authService := authservice.New(
-		cachedRepo,
+		userRepo,
 		tokenManager,
-		rediscache.NewRefreshStore(redisClient),
+		refreshStore,
 		otpProvider,
-		rediscache.NewPendingSignupStore(redisClient),
-		rediscache.NewOTPStateStore(redisClient),
+		pendingSignupStore,
+		otpStateStore,
 		auth.OTPConfig{
 			PendingSignupTTL: envConfigs.Auth.PendingSignupTTL,
 			ResendCooldown:   envConfigs.Auth.OTPResendCooldown,
@@ -124,7 +146,6 @@ func main() {
 		},
 		appLogger,
 	)
-	rateLimiter := rediscache.NewRateLimiter(redisClient)
 	cookieSameSite := http.SameSiteLaxMode
 	switch envConfigs.Auth.CookieSameSite {
 	case "strict":
@@ -177,7 +198,11 @@ func main() {
 				return err
 			}
 
-			return rediscache.Ping(ctx, redisClient)
+			if redisReadinessCheck != nil {
+				return redisReadinessCheck(ctx)
+			}
+
+			return nil
 		},
 		Logger: appLogger,
 	}, authHandler)

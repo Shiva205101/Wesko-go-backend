@@ -34,7 +34,7 @@ case "${environment}" in
     ;;
   *)
     min_instances="${MIN_INSTANCES:-0}"
-    max_instances="${MAX_INSTANCES:-2}"
+    max_instances="${MAX_INSTANCES:-1}"
     ;;
 esac
 
