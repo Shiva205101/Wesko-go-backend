@@ -135,7 +135,7 @@ jobs:
 
       - name: Extract image metadata
         id: docker-meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.meta-vars.outputs.image_uri }}
           tags: |
