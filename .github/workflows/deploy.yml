@@ -233,12 +233,16 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           AUTH_JWE_KEY: ${{ secrets.AUTH_JWE_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         shell: bash
         run: |
           set -euo pipefail
           env_name="${{ steps.deploy-vars.outputs.environment }}"
           ./scripts/sync-secret.sh "${env_name}" DATABASE_URL "wesko-database-url-${env_name}"
           ./scripts/sync-secret.sh "${env_name}" AUTH_JWE_KEY "wesko-jwt-secret-${env_name}"
+          ./scripts/sync-secret.sh "${env_name}" GOOGLE_CLIENT_ID "wesko-google-client-id-${env_name}"
+          ./scripts/sync-secret.sh "${env_name}" GOOGLE_CLIENT_SECRET "wesko-google-client-secret-${env_name}"
 
       - name: Deploy to Cloud Run
         env:
