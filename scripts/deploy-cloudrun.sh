@@ -105,10 +105,16 @@ append_env_file "${common_env_file}"
 append_env_file "${environment_env_file}"
 
 cloud_sql_connection_name="$(awk -F": " '$1=="CLOUD_SQL_CONNECTION_NAME" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
+redis_enabled="$(awk -F": " '$1=="REDIS_ENABLED" {gsub(/^'\''|'\''$/, "", $2); print tolower($2)}' "${tmp_env_file}" | tail -n1)"
 vpc_connector="$(awk -F": " '$1=="VPC_CONNECTOR" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 vpc_egress="$(awk -F": " '$1=="VPC_EGRESS" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 vpc_network="$(awk -F": " '$1=="VPC_NETWORK" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
 vpc_subnet="$(awk -F": " '$1=="VPC_SUBNET" {gsub(/^'\''|'\''$/, "", $2); print $2}' "${tmp_env_file}" | tail -n1)"
+
+if [[ "${redis_enabled}" != "true" ]]; then
+  min_instances="${MIN_INSTANCES:-0}"
+  max_instances="${MAX_INSTANCES:-1}"
+fi
 
 normalize_vpc_egress() {
   local raw="${1:-}"
