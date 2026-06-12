@@ -16,6 +16,9 @@ import (
 	authservice "vesko/auth/service"
 	memorycache "vesko/cache/memory"
 	rediscache "vesko/cache/redis"
+	cataloghttp "vesko/catalog/http"
+	"vesko/catalog/productdao"
+	catalogservice "vesko/catalog/service"
 	"vesko/configs"
 	"vesko/dbase/userdao"
 	"vesko/internal/observability"
@@ -74,6 +77,15 @@ func main() {
 	pgRepo := userdao.NewPostgresRepository(db)
 	if err = pgRepo.AutoMigrate(ctx); err != nil {
 		fatal(appLogger, "database migration failed", err)
+	}
+	catalogRepo := productdao.NewPostgresRepository(db)
+	if err = catalogRepo.AutoMigrate(ctx); err != nil {
+		// Catalog schema is migration-managed; avoid blocking startup on
+		// AutoMigrate drift against pre-existing SQL constraints.
+		appLogger.Warn("catalog auto-migrate failed; continuing with existing schema",
+			"error", err.Error(),
+			"hint", "apply SQL migrations under dbase/migrations",
+		)
 	}
 
 	sqlDB, err := db.DB()
@@ -183,6 +195,9 @@ func main() {
 			Window: envConfigs.Auth.OTPVerifyLimitWindow,
 		},
 	})
+	catalogSvc := catalogservice.New(catalogRepo, appLogger)
+	catalogHandler := cataloghttp.New(catalogSvc, appLogger)
+
 	httpServer := server.New(server.Config{
 		Addr:            ":" + envConfigs.HTTP.Port,
 		AllowedOrigins:  envConfigs.HTTP.AllowedOrigins,
@@ -205,7 +220,12 @@ func main() {
 			return nil
 		},
 		Logger: appLogger,
-	}, authHandler)
+	}, routeRegistrar{
+		registrars: []server.RouteRegistrar{
+			authHandler,
+			catalogHandler,
+		},
+	})
 
 	serverErrCh := make(chan error, 1)
 	go func() {
@@ -268,4 +288,17 @@ func isReleaseEnvironment(env string) bool {
 func fatal(logger *slog.Logger, message string, err error) {
 	logger.Error(message, "error", err.Error())
 	os.Exit(1)
+}
+
+type routeRegistrar struct {
+	registrars []server.RouteRegistrar
+}
+
+func (r routeRegistrar) RegisterRoutes(router gin.IRouter) {
+	for _, registrar := range r.registrars {
+		if registrar == nil {
+			continue
+		}
+		registrar.RegisterRoutes(router)
+	}
 }
